@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Midnight Play | Arcade Lobby</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="core/midnight.css">
+</head>
+
+<body>
+  <!-- Top Navigation -->
+  <header class="glass-header">
+    <div class="flex items-center gap-4">
+      <button onclick="toggleSidebar()" class="p-2 hover:bg-white/5 rounded-xl lg:hidden">
+        <i class="fas fa-bars"></i>
+      </button>
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 bg-gradient-to-tr from-purple-600 to-blue-400 rounded-lg"></div>
+        <div class="text-2xl font-black tracking-tighter">MIDNIGHT<span class="text-purple-500">PLAY</span></div>
+      </div>
+    </div>
+
+    <div class="hidden md:flex flex-1 max-w-xl mx-10">
+      <div class="relative w-full">
+        <input type="text" placeholder="Search the metaverse..."
+          class="w-full bg-white/5 border border-white/10 rounded-2xl px-12 py-3 text-sm focus:outline-none focus:border-purple-500/50 transition-all text-white">
+        <i class="fas fa-search absolute left-4 top-4 text-gray-600"></i>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <button class="neon-btn">Join Club</button>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <nav class="space-y-4">
+      <a href="#" class="sidebar-item active">
+        <i class="fas fa-home"></i> Home
+      </a>
+      <a href="#" class="sidebar-item">
+        <i class="fas fa-fire"></i> Trending
+      </a>
+      <div class="pt-4 border-t border-white/5">
+        <h3 class="text-[10px] font-black text-gray-600 uppercase tracking-widest px-3 mb-2">Categories</h3>
+        <a href="#" class="sidebar-item"><i class="fas fa-gamepad"></i> Action</a>
+        <a href="#" class="sidebar-item"><i class="fas fa-car"></i> Racing</a>
+        <a href="#" class="sidebar-item"><i class="fas fa-brain"></i> Puzzle</a>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- Main Grid -->
+  <main class="main-container" id="mainContainer">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
+      <div>
+        <h1 class="text-4xl font-black text-white tracking-tight mb-1">Epic Adventures</h1>
+        <p class="text-gray-500 font-medium">Original games, professional portal.</p>
+      </div>
+    </div>
+
+    <div id="gamesGrid" class="games-grid">
+      <!-- Dynamic loading from loader.js -->
+    </div>
+  </main>
+
+  <!-- THEATER MODE OVERLAY -->
+  <div class="player-overlay" id="playerOverlay">
+    <div class="theater-grid">
+      <!-- Side Ad (Left) -->
+      <div class="side-content left-ad space-y-4">
+        <div class="ad-banner h-[280px]">PRO_AD_1</div>
+      </div>
+
+      <!-- Main Stage -->
+      <div class="main-stage space-y-5">
+        <div class="game-stage-wrapper">
+          <div class="canvas-header">
+            <div class="flex items-center gap-3">
+              <div
+                class="w-10 h-10 bg-purple-600/20 rounded-xl flex items-center justify-center border border-purple-500/20">
+                <i class="fas fa-gamepad text-purple-400"></i>
+              </div>
+              <div>
+                <h2 id="activeTitle" class="font-black text-white text-lg">Game Title</h2>
+                <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest">v1.0.0 Stable</p>
+              </div>
+            </div>
+            <button onclick="exitGame()"
+              class="group flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-500 transition-all font-bold">
+              <span>Close Game</span>
+              <span class="text-xs bg-white/10 px-2 py-0.5 rounded-lg">ESC</span>
+            </button>
+          </div>
+
+          <div class="game-iframe-container">
+            <iframe id="gameIframe" src="" allowfullscreen></iframe>
+          </div>
+        </div>
+
+        <!-- Interaction Dashboard -->
+        <div class="game-controls">
+          <div class="flex items-center gap-8">
+            <div class="flex flex-col items-center gap-1 group cursor-pointer">
+              <button class="p-3 bg-white/5 rounded-2xl group-hover:bg-green-500/20 transition-all">🔥</button>
+            </div>
+            <div class="flex flex-col items-center gap-1 group cursor-pointer">
+              <button class="p-3 bg-white/5 rounded-2xl group-hover:bg-red-500/20 transition-all">❄️</button>
+            </div>
+          </div>
+          <button onclick="triggerFullscreen()"
+            class="neon-btn font-black text-xs uppercase tracking-widest">Fullscreen</button>
+        </div>
+      </div>
+
+      <!-- Right Content -->
+      <div class="side-content space-y-6">
+        <div class="bg-purple-600/5 border border-purple-500/10 p-5 rounded-3xl">
+          <h4 class="text-xs font-black text-purple-400 uppercase mb-4 tracking-widest">Recommendations</h4>
+          <div id="suggestedGames" class="space-y-4"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="core/loader.js"></script>
+  <script>
+    function toggleSidebar() {
+      const sb = document.getElementById('sidebar');
+      sb.style.transform = (sb.style.transform === 'translateX(0px)') ? 'translateX(-100%)' : 'translateX(0px)';
+    }
+    function triggerFullscreen() {
+      const iframe = document.getElementById('gameIframe');
+      if (iframe.requestFullscreen) iframe.requestFullscreen();
+    }
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') exitGame();
+    });
+  </script>
+</body>
+
+</html>

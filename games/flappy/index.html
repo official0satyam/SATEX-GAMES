@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Aero Flap | ArcadeVerse</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../core/styles.css">
+</head>
+
+<body>
+  <div class="game-shell">
+    <div class="game-area" id="gameContainer">
+      <canvas id="game"></canvas>
+
+      <div class="hud-overlay">
+        <div class="hud-stat">
+          <span class="hud-stat-label">Score</span>
+          <span id="score" class="hud-stat-value">0</span>
+        </div>
+        <div class="hud-stat">
+          <span class="hud-stat-label">Best</span>
+          <span id="highscore" class="hud-stat-value">0</span>
+        </div>
+      </div>
+
+      <div id="startOverlay" class="game-overlay-panel">
+        <h1 class="overlay-title">AERO FLAP</h1>
+        <button id="startBtn" class="btn-cartoon">START FLIGHT</button>
+      </div>
+
+      <div id="gameOverOverlay" class="game-overlay-panel" style="display: none;">
+        <h1 class="overlay-title" style="color: #FF6B6B">CRASHED!</h1>
+        <p id="finalScore" style="font-size: 1.5rem; margin-bottom: 25px; font-weight: 700;">Score: 0</p>
+        <button id="retryBtn" class="btn-cartoon">RETRY</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const startOverlay = document.getElementById('startOverlay');
+    const gameOverOverlay = document.getElementById('gameOverOverlay');
+
+    let bird = { x: 50, y: 0, vy: 0, w: 34, h: 24 };
+    let pipes = [];
+    let score = 0;
+    let highscore = localStorage.getItem('arcadeverse_flappy_highscore') || 0;
+    let gameActive = false;
+    let frame = 0;
+
+    document.getElementById('highscore').textContent = highscore;
+
+    function resize() {
+      const container = document.getElementById('gameContainer');
+      canvas.width = container.clientWidth;
+      canvas.height = container.clientHeight;
+      bird.y = canvas.height / 2;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function reset() {
+      bird.y = canvas.height / 2;
+      bird.vy = 0;
+      pipes = [];
+      score = 0;
+      frame = 0;
+      scoreEl.textContent = '0';
+    }
+
+    function spawnPipe() {
+      const gap = 160;
+      const h = 50 + Math.random() * (canvas.height - gap - 100);
+      pipes.push({ x: canvas.width, top: h, bottom: canvas.height - h - gap, passed: false });
+    }
+
+    function update() {
+      if (!gameActive) return;
+      bird.vy += 0.25;
+      bird.y += bird.vy;
+      if (frame % 100 === 0) spawnPipe();
+      pipes.forEach(p => {
+        p.x -= 3;
+        if (bird.x + 15 > p.x && bird.x - 15 < p.x + 60) {
+          if (bird.y - 12 < p.top || bird.y + 12 > canvas.height - p.bottom) endGame();
+        }
+        if (!p.passed && p.x < bird.x) {
+          p.passed = true;
+          score++;
+          scoreEl.textContent = score;
+          if (score > highscore) {
+            highscore = score;
+            document.getElementById('highscore').textContent = highscore;
+            localStorage.setItem('arcadeverse_flappy_highscore', highscore);
+          }
+        }
+      });
+      pipes = pipes.filter(p => p.x > -80);
+      if (bird.y > canvas.height || bird.y < 0) endGame();
+      frame++;
+    }
+
+    function draw() {
+      // Sky
+      ctx.fillStyle = '#4FACFE';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Pipes (Original Green)
+      ctx.fillStyle = '#73bf2d';
+      ctx.strokeStyle = '#212529';
+      ctx.lineWidth = 3;
+      pipes.forEach(p => {
+        ctx.fillRect(p.x, 0, 60, p.top);
+        ctx.strokeRect(p.x, 0, 60, p.top);
+        ctx.fillRect(p.x, canvas.height - p.bottom, 60, p.bottom);
+        ctx.strokeRect(p.x, canvas.height - p.bottom, 60, p.bottom);
+      });
+
+      // Bird (Yellow Cartoon)
+      ctx.fillStyle = '#FFD930';
+      ctx.strokeStyle = '#212529';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(bird.x, bird.y, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Eye
+      ctx.fillStyle = 'white';
+      ctx.beginPath(); ctx.arc(bird.x + 8, bird.y - 4, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'black';
+      ctx.beginPath(); ctx.arc(bird.x + 9, bird.y - 4, 1.5, 0, Math.PI * 2); ctx.fill();
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function endGame() {
+      gameActive = false;
+      gameOverOverlay.style.display = 'flex';
+      document.getElementById('finalScore').textContent = `Score: ${score}`;
+    }
+
+    document.getElementById('startBtn').onclick = () => {
+      gameActive = true;
+      startOverlay.style.display = 'none';
+      reset();
+    };
+
+    document.getElementById('retryBtn').onclick = () => {
+      gameActive = true;
+      gameOverOverlay.style.display = 'none';
+      reset();
+    };
+
+    window.onkeydown = (e) => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') {
+        if (gameActive) bird.vy = -6;
+        e.preventDefault();
+      }
+    };
+    canvas.onmousedown = () => { if (gameActive) bird.vy = -6; };
+
+    loop();
+  </script>
+</body>
+
+</html>

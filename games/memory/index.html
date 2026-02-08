@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Memory Matrix | ArcadeVerse</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../core/styles.css">
+    <style>
+        .board {
+            display: grid;
+            /* Dynamic columns based on screen width */
+            grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+            gap: 10px;
+            width: 95%;
+            max-width: 600px;
+            margin: auto;
+        }
+
+        @media (min-width: 600px) {
+            .board {
+                grid-template-columns: repeat(6, 1fr);
+            }
+        }
+
+        .card {
+            aspect-ratio: 1;
+            perspective: 1000px;
+            cursor: pointer;
+        }
+
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform-style: preserve-3d;
+        }
+
+        .card.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .card-front,
+        .card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            border: var(--cartoon-border);
+        }
+
+        .card-front {
+            background: var(--secondary);
+            color: #fff;
+            box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-back {
+            background: #fff;
+            transform: rotateY(180deg);
+            color: #000;
+            box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="game-shell">
+        <div class="game-area" id="gameContainer">
+            <div id="board" class="board"></div>
+
+            <div class="hud-overlay">
+                <div class="hud-stat">
+                    <span class="hud-stat-label">Moves</span>
+                    <span id="moveCount" class="hud-stat-value">0</span>
+                </div>
+                <div class="hud-stat">
+                    <span class="hud-stat-label">Best</span>
+                    <span id="bestMoves" class="hud-stat-value">--</span>
+                </div>
+            </div>
+
+            <div id="startOverlay" class="game-overlay-panel">
+                <h1 class="overlay-title">MEMORY MATCH</h1>
+                <button id="startBtn" class="btn-cartoon">START GAME</button>
+            </div>
+
+            <div id="winOverlay" class="game-overlay-panel" style="display: none;">
+                <h1 class="overlay-title" style="color: #4CAF50">MATCHED!</h1>
+                <p id="finalMoves" style="font-size: 1.5rem; margin-bottom: 25px; font-weight: 700;">Moves: 0</p>
+                <button onclick="location.reload()" class="btn-cartoon">PLAY AGAIN</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const cards = ['👾', '🤖', '🛸', '🍭', '🍦', '🎈', '🧸', '🦖', '🍕', '🍩', '🍔', '🍟', '🎨', '🎮', '🎸', '🚀', '🌈', '⭐', '👾', '🤖', '🛸', '🍭', '🍦', '🎈', '🧸', '🦖', '🍕', '🍩', '🍔', '🍟', '🎨', '🎮', '🎸', '🚀', '🌈', '⭐'];
+        let flippedCards = [];
+        let matchedPairs = 0;
+        let moves = 0;
+        let bestMoves = localStorage.getItem('arcadeverse_memory_bestmoves') || Infinity;
+        let lockBoard = false;
+
+        if (bestMoves !== Infinity) document.getElementById('bestMoves').textContent = bestMoves;
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        function createBoard() {
+            const board = document.getElementById('board');
+            shuffle(cards);
+            cards.forEach((emoji, index) => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `<div class="card-inner"><div class="card-front">?</div><div class="card-back">${emoji}</div></div>`;
+                card.onclick = () => flipCard(card, emoji);
+                board.appendChild(card);
+            });
+        }
+
+        function flipCard(card, emoji) {
+            if (lockBoard || card.classList.contains('flipped') || flippedCards.length === 2) return;
+            card.classList.add('flipped');
+            flippedCards.push({ card, emoji });
+
+            if (flippedCards.length === 2) {
+                moves++;
+                document.getElementById('moveCount').textContent = moves;
+                checkMatch();
+            }
+        }
+
+        function checkMatch() {
+            const [c1, c2] = flippedCards;
+            if (c1.emoji === c2.emoji) {
+                matchedPairs++;
+                flippedCards = [];
+                if (matchedPairs === cards.length / 2) endGame();
+            } else {
+                lockBoard = true;
+                setTimeout(() => {
+                    c1.card.classList.remove('flipped');
+                    c2.card.classList.remove('flipped');
+                    flippedCards = [];
+                    lockBoard = false;
+                }, 800);
+            }
+        }
+
+        function endGame() {
+            if (moves < bestMoves) {
+                bestMoves = moves;
+                localStorage.setItem('arcadeverse_memory_bestmoves', bestMoves);
+            }
+            document.getElementById('finalMoves').textContent = `Total Moves: ${moves}`;
+            document.getElementById('winOverlay').style.display = 'flex';
+        }
+
+        document.getElementById('startBtn').onclick = () => {
+            document.getElementById('startOverlay').style.display = 'none';
+            createBoard();
+        };
+    </script>
+</body>
+
+</html>

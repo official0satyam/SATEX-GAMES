@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>2048 Master | ArcadeVerse</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../core/styles.css">
+  <style>
+    .grid {
+      width: 90%;
+      max-width: 440px;
+      aspect-ratio: 1;
+      background: #bbada0;
+      padding: 12px;
+      border-radius: 12px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      position: relative;
+      border: var(--cartoon-border);
+    }
+
+    .cell {
+      background: rgba(238, 228, 218, 0.35);
+      border-radius: 8px;
+    }
+
+    .tile {
+      position: absolute;
+      width: calc(25% - 15px);
+      height: calc(25% - 15px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 950;
+      border-radius: 8px;
+      font-size: 2rem;
+      color: #776e65;
+      transition: all 0.1s;
+    }
+
+    .v2 {
+      background: #eee4da;
+    }
+
+    .v4 {
+      background: #ede0c8;
+    }
+
+    .v8 {
+      background: #f2b179;
+      color: #f9f6f2;
+    }
+
+    .v16 {
+      background: #f59563;
+      color: #f9f6f2;
+    }
+
+    .v32 {
+      background: #f67c5f;
+      color: #f9f6f2;
+    }
+
+    .v64 {
+      background: #f65e3b;
+      color: #f9f6f2;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="game-shell">
+    <div class="game-area" id="gameContainer">
+      <div id="grid" class="grid"></div>
+
+      <div class="hud-overlay">
+        <div class="hud-stat">
+          <span class="hud-stat-label">Score</span>
+          <span id="score" class="hud-stat-value">0</span>
+        </div>
+        <div class="hud-stat">
+          <span class="hud-stat-label">Best</span>
+          <span id="highscore" class="hud-stat-value">0</span>
+        </div>
+      </div>
+
+      <div id="startOverlay" class="game-overlay-panel">
+        <h1 class="overlay-title">2048</h1>
+        <button id="startBtn" class="btn-cartoon">START GAME</button>
+      </div>
+
+      <div id="gameOverOverlay" class="game-overlay-panel" style="display: none;">
+        <h1 class="overlay-title" style="color: #FF6B6B">GAME OVER</h1>
+        <button onclick="location.reload()" class="btn-cartoon">RETRY</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const gridEl = document.getElementById('grid');
+    const scoreEl = document.getElementById('score');
+    const highscoreEl = document.getElementById('highscore');
+
+    let board = Array.from({ length: 4 }, () => Array(4).fill(0));
+    let score = 0;
+    let highscore = localStorage.getItem('arcadeverse_2048_highscore') || 0;
+    highscoreEl.textContent = highscore;
+
+    function buildGrid() {
+      gridEl.innerHTML = '';
+      for (let i = 0; i < 16; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        gridEl.appendChild(cell);
+      }
+    }
+
+    function createTile(r, c, val) {
+      const tile = document.createElement('div');
+      tile.className = `tile v${val}`;
+      tile.textContent = val;
+      tile.style.top = `calc(${r * 25}% + 15px)`;
+      tile.style.left = `calc(${c * 25}% + 15px)`;
+      gridEl.appendChild(tile);
+    }
+
+    function render() {
+      document.querySelectorAll('.tile').forEach(t => t.remove());
+      board.forEach((row, r) => row.forEach((val, c) => {
+        if (val > 0) createTile(r, c, val);
+      }));
+    }
+
+    function addRandom() {
+      let empties = [];
+      board.forEach((row, r) => row.forEach((val, c) => { if (val === 0) empties.push({ r, c }); }));
+      if (empties.length) {
+        let { r, c } = empties[Math.floor(Math.random() * empties.length)];
+        board[r][c] = Math.random() < 0.9 ? 2 : 4;
+      }
+    }
+
+    function move(dir) {
+      addRandom();
+      render();
+      score += 2;
+      scoreEl.textContent = score;
+    }
+
+    document.getElementById('startBtn').onclick = () => {
+      document.getElementById('startOverlay').style.display = 'none';
+      buildGrid();
+      addRandom(); addRandom();
+      render();
+    };
+
+    window.onkeydown = (e) => {
+      if (e.key.includes('Arrow')) {
+        e.preventDefault();
+        move(e.key);
+      }
+    };
+  </script>
+</body>
+
+</html>

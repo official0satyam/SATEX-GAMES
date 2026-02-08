@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tic Tac Toe | ArcadeVerse</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../core/styles.css">
+    <style>
+        .board {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            width: 90%;
+            max-width: 400px;
+            aspect-ratio: 1;
+        }
+
+        .cell {
+            background: white;
+            border: var(--cartoon-border);
+            border-radius: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 3.5rem;
+            font-weight: 950;
+            cursor: pointer;
+            color: #212529;
+            box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.1);
+            transition: all 0.2s;
+        }
+
+        .cell:hover {
+            background: #f8f9fa;
+            transform: translateY(-2px);
+        }
+
+        .cell.x {
+            color: var(--primary);
+        }
+
+        .cell.o {
+            color: var(--secondary);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="game-shell">
+        <div class="game-area" id="gameContainer">
+            <div id="board" class="board">
+                <div class="cell" onclick="handleMove(0)"></div>
+                <div class="cell" onclick="handleMove(1)"></div>
+                <div class="cell" onclick="handleMove(2)"></div>
+                <div class="cell" onclick="handleMove(3)"></div>
+                <div class="cell" onclick="handleMove(4)"></div>
+                <div class="cell" onclick="handleMove(5)"></div>
+                <div class="cell" onclick="handleMove(6)"></div>
+                <div class="cell" onclick="handleMove(7)"></div>
+                <div class="cell" onclick="handleMove(8)"></div>
+            </div>
+
+            <div class="hud-overlay">
+                <div class="hud-stat">
+                    <span class="hud-stat-label">Turn</span>
+                    <span id="turnText" class="hud-stat-value">X</span>
+                </div>
+            </div>
+
+            <div id="setupOverlay" class="game-overlay-panel">
+                <h1 class="overlay-title">TIC TAC TOE</h1>
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    <button onclick="startGame('single')" class="btn-cartoon">VS COMPUTER</button>
+                    <button onclick="startGame('multi')" class="btn-cartoon"
+                        style="background: var(--secondary); color: white;">2 PLAYERS</button>
+                </div>
+            </div>
+
+            <div id="winOverlay" class="game-overlay-panel" style="display: none;">
+                <h1 id="winMsg" class="overlay-title">X WINS!</h1>
+                <button onclick="location.reload()" class="btn-cartoon">REPLAY</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let board = ['', '', '', '', '', '', '', '', ''];
+        let currentPlayer = 'X';
+        let gameActive = false;
+        let mode = 'single';
+        const cells = document.querySelectorAll('.cell');
+
+        function startGame(m) {
+            mode = m;
+            gameActive = true;
+            document.getElementById('setupOverlay').style.display = 'none';
+        }
+
+        function handleMove(idx) {
+            if (board[idx] !== '' || !gameActive) return;
+            board[idx] = currentPlayer;
+            cells[idx].textContent = currentPlayer;
+            cells[idx].classList.add(currentPlayer.toLowerCase());
+
+            if (checkWin()) return endGame(currentPlayer + " WINS!");
+            if (board.every(c => c !== '')) return endGame("DRAW!");
+
+            currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+            document.getElementById('turnText').textContent = currentPlayer;
+
+            if (mode === 'single' && currentPlayer === 'O') {
+                gameActive = false;
+                setTimeout(aiMove, 600);
+            }
+        }
+
+        function aiMove() {
+            let empties = board.map((v, i) => v === '' ? i : null).filter(v => v !== null);
+            if (empties.length) {
+                gameActive = true;
+                handleMove(empties[Math.floor(Math.random() * empties.length)]);
+            }
+        }
+
+        function checkWin() {
+            const wins = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+            return wins.some(win => board[win[0]] && board[win[0]] === board[win[1]] && board[win[0]] === board[win[2]]);
+        }
+
+        function endGame(msg) {
+            gameActive = false;
+            document.getElementById('winMsg').textContent = msg.toUpperCase();
+            document.getElementById('winOverlay').style.display = 'flex';
+        }
+    </script>
+</body>
+
+</html>

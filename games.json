@@ -1,0 +1,56 @@
+[
+  {
+    "id": "snake",
+    "title": "Snake Evolution",
+    "type": "2D",
+    "category": "Action",
+    "controls": "Keyboard",
+    "path": "games/snake/index.html",
+    "thumbnail": "assets/thumbnails/snake.jpg"
+  },
+  {
+    "id": "flappy",
+    "title": "Aero Flap",
+    "type": "2D",
+    "category": "Arcade",
+    "controls": "Tap / Space",
+    "path": "games/flappy/index.html",
+    "thumbnail": "assets/thumbnails/flappy.jpg"
+  },
+  {
+    "id": "memory",
+    "title": "Memory Matrix",
+    "type": "2D",
+    "category": "Puzzle",
+    "controls": "Mouse",
+    "path": "games/memory/index.html",
+    "thumbnail": "assets/thumbnails/memory.jpg"
+  },
+  {
+    "id": "tictactoe",
+    "title": "Tic Tac Pro",
+    "type": "2D",
+    "category": "Social",
+    "controls": "Mouse",
+    "path": "games/tictactoe/index.html",
+    "thumbnail": "assets/thumbnails/tic.jpg"
+  },
+  {
+    "id": "2048",
+    "title": "2048 Master",
+    "type": "2D",
+    "category": "Puzzle",
+    "controls": "Keyboard",
+    "path": "games/2048/index.html",
+    "thumbnail": "assets/thumbnails/2048.jpg"
+  },
+  {
+    "id": "car3d",
+    "title": "Nitro Rush 3D",
+    "type": "3D",
+    "category": "Racing",
+    "controls": "Keyboard",
+    "path": "games/car3d/index.html",
+    "thumbnail": "assets/thumbnails/car3d.jpg"
+  }
+]

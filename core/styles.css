@@ -1,0 +1,112 @@
+/* ArcadeVerse Original Orange Cartoon Design System */
+
+:root {
+    --primary: #FF6B6B;
+    --primary-dark: #cc5555;
+    --secondary: #4FACFE;
+    --accent: #FFD930;
+    --text-main: #2D3436;
+    --text-muted: #636E72;
+    --bg-main: #FFF4E6;
+    --cartoon-border: 4px solid #212529;
+    --cartoon-shadow: 6px 6px 0px #212529;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: 'Outfit', sans-serif;
+    background: var(--bg-main);
+    color: var(--text-main);
+}
+
+.game-shell {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+}
+
+.game-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+/* Generic HUD for Cartoon Games */
+.hud-overlay {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    gap: 15px;
+    z-index: 10;
+}
+
+.hud-stat {
+    background: white;
+    border: var(--cartoon-border);
+    padding: 10px 20px;
+    border-radius: 12px;
+    box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+
+.hud-stat-label {
+    display: block;
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.hud-stat-value {
+    display: block;
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--primary);
+}
+
+/* Original Cartoon Button */
+.btn-cartoon {
+    background: var(--accent);
+    border: var(--cartoon-border);
+    padding: 12px 30px;
+    border-radius: 14px;
+    font-weight: 950;
+    font-size: 1.25rem;
+    color: #212529;
+    cursor: pointer;
+    box-shadow: 4px 4px 0px #212529;
+    transition: all 0.2s;
+}
+
+.btn-cartoon:active {
+    transform: translate(2px, 2px);
+    box-shadow: 2px 2px 0px #212529;
+}
+
+.game-overlay-panel {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 244, 230, 0.9);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+.overlay-title {
+    font-size: 4rem;
+    font-weight: 950;
+    color: #212529;
+    -webkit-text-stroke: 2px white;
+    margin-bottom: 30px;
+}

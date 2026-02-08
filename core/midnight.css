@@ -1,0 +1,288 @@
+/* ArcadeVerse Professional Midnight Lobby Styles */
+
+:root {
+    --bg-deep: #050507;
+    --bg-surface: #0f0f13;
+    --bg-card: #16161d;
+    --accent: #bc13fe;
+    --accent-glow: rgba(188, 19, 254, 0.4);
+    --neon-blue: #00f2ff;
+    --text-main: #ffffff;
+    --text-muted: #888888;
+}
+
+body {
+    background-color: var(--bg-deep);
+    color: var(--text-main);
+    font-family: 'Outfit', sans-serif;
+    margin: 0;
+}
+
+/* Header */
+.glass-header {
+    background: rgba(5, 5, 7, 0.85);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    height: 70px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    position: sticky;
+    top: 0;
+    z-index: 2000;
+    /* Highest priority */
+}
+
+/* Sidebar */
+.sidebar {
+    width: 260px;
+    background: var(--bg-surface);
+    border-right: 1px solid rgba(255, 255, 255, 0.03);
+    height: calc(100vh - 70px);
+    position: fixed;
+    top: 70px;
+    transition: all 0.4s ease;
+    z-index: 40;
+    padding: 16px;
+    overflow-y: auto;
+}
+
+.sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: 0.2s;
+}
+
+.sidebar-item:hover {
+    color: var(--accent);
+    background: rgba(188, 19, 254, 0.05);
+}
+
+.sidebar-item.active {
+    background: linear-gradient(90deg, rgba(188, 19, 254, 0.1) 0%, transparent 100%);
+    color: var(--accent);
+    border-left: 3px solid var(--accent);
+}
+
+/* Main Container */
+.main-container {
+    margin-left: 260px;
+    padding: 30px;
+    transition: 0.3s ease;
+}
+
+@media (max-width: 1100px) {
+    .sidebar {
+        transform: translateX(-100%);
+    }
+
+    .main-container {
+        margin-left: 0;
+        padding: 20px;
+    }
+}
+
+/* Games Grid */
+.games-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 24px;
+}
+
+.game-card {
+    background: var(--bg-card);
+    border-radius: 20px;
+    position: relative;
+    aspect-ratio: 1/1;
+    overflow: hidden;
+    transition: all 0.4s;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.game-card:hover {
+    transform: scale(1.05);
+    border-color: var(--accent);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px var(--accent-glow);
+}
+
+.card-image-box {
+    position: absolute;
+    inset: 0;
+}
+
+.card-image-box img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.6s;
+}
+
+.game-card:hover .card-image-box img {
+    transform: scale(1.1);
+}
+
+.card-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, transparent 60%);
+}
+
+.card-info {
+    position: absolute;
+    bottom: 15px;
+    left: 15px;
+    right: 15px;
+}
+
+.game-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.badge-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+}
+
+.badge-text {
+    font-size: 9px;
+    font-weight: 900;
+    text-transform: uppercase;
+    color: #888;
+}
+
+.card-title {
+    font-weight: 900;
+    font-size: 1.1rem;
+    color: #fff;
+}
+
+/* Theater Mode */
+.player-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #020204;
+    z-index: 1001;
+    /* Lower than header but higher than content */
+    overflow-y: auto;
+    padding: 20px;
+}
+
+@media (min-width: 1100px) {
+    .player-overlay {
+        top: 70px;
+        /* Offset for header */
+        z-index: 100;
+        /* Ensure header at z-index 1000 stays above */
+    }
+}
+
+.theater-grid {
+    display: grid;
+    grid-template-columns: 300px 1fr 300px;
+    gap: 24px;
+    max-width: 1920px;
+    margin: 0 auto;
+}
+
+.game-stage-wrapper {
+    background: #000;
+    border-radius: 24px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.game-iframe-container {
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+}
+
+.game-iframe-container iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+.canvas-header {
+    height: 60px;
+    background: #0a0a0f;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.game-controls {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 24px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    margin-top: 20px;
+}
+
+.neon-btn {
+    background: var(--accent);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-weight: 900;
+    cursor: pointer;
+    border: none;
+}
+
+@media (max-width: 1280px) {
+    .theater-grid {
+        grid-template-columns: 1fr 300px;
+    }
+
+    .left-ad {
+        display: none;
+    }
+}
+
+@media (max-width: 1100px) {
+    .theater-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .side-content {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .game-stage-wrapper {
+        position: fixed;
+        inset: 0;
+        border-radius: 0;
+    }
+
+    .canvas-header,
+    .game-controls {
+        display: none;
+    }
+
+    .game-iframe-container {
+        height: 100vh;
+        aspect-ratio: auto;
+    }
+}

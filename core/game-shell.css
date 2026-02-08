@@ -1,0 +1,135 @@
+/* Midnight Play: Global Game Shell - Platform Standard */
+
+:root {
+    --bg-deep: #050507;
+    --bg-surface: #0f0f13;
+    --bg-card: #16161d;
+    --accent: #bc13fe;
+    --accent-glow: rgba(188, 19, 254, 0.4);
+    --neon-blue: #00f2ff;
+    --text-main: #ffffff;
+    --text-muted: #888888;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+    background: #000;
+    /* Pure black for game iframes */
+    color: #fff;
+}
+
+.game-shell {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    position: fixed;
+    inset: 0;
+}
+
+/* In the iframe mode, we don't need the topbar anymore as the parent handles it */
+.game-topbar {
+    display: none;
+}
+
+.game-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Ensure canvas takes max space without breaking aspect ratio */
+.game-area>canvas {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+    /* Crisp for pixel games */
+}
+
+/* Generic Score/Stat Display for In-Game HUDs */
+.hud-overlay {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    pointer-events: none;
+    display: flex;
+    gap: 15px;
+}
+
+.hud-stat {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    padding: 8px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    text-align: right;
+    min-width: 80px;
+}
+
+.hud-stat-label {
+    display: block;
+    font-size: 9px;
+    text-transform: uppercase;
+    font-weight: 900;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+}
+
+.hud-stat-value {
+    display: block;
+    font-size: 1.25rem;
+    font-weight: 900;
+    color: var(--accent);
+}
+
+/* Start/End Screen Generic Style */
+.game-overlay-panel {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(15px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    text-align: center;
+    padding: 20px;
+}
+
+.overlay-title {
+    color: var(--accent);
+    font-size: 3rem;
+    font-weight: 900;
+    margin-bottom: 20px;
+    text-shadow: 0 0 20px var(--accent-glow);
+}
+
+.overlay-btn {
+    padding: 16px 48px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 16px;
+    font-weight: 900;
+    font-size: 1.25rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 5px 15px var(--accent-glow);
+}
+
+.overlay-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px var(--accent-glow);
+}
