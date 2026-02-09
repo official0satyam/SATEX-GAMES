@@ -65,10 +65,12 @@ body {
     background: rgba(188, 19, 254, 0.05);
 }
 
+/* Active Sidebar Item */
 .sidebar-item.active {
-    background: linear-gradient(90deg, rgba(188, 19, 254, 0.1) 0%, transparent 100%);
-    color: var(--accent);
-    border-left: 3px solid var(--accent);
+    background: linear-gradient(90deg, #9333ea, #6366f1);
+    border: none;
+    box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);
+    color: white;
 }
 
 /* Main Container */
@@ -92,8 +94,32 @@ body {
 /* Games Grid */
 .games-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 24px;
+    grid-template-columns: repeat(2, 1fr);
+    /* Mobile: 2 columns */
+    gap: 16px;
+}
+
+@media (min-width: 640px) {
+    .games-grid {
+        grid-template-columns: repeat(3, 1fr);
+        /* Tablet: 3 columns */
+        gap: 20px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .games-grid {
+        grid-template-columns: repeat(4, 1fr);
+        /* Desktop: 4 columns */
+        gap: 24px;
+    }
+}
+
+@media (min-width: 1440px) {
+    .games-grid {
+        grid-template-columns: repeat(5, 1fr);
+        /* Large Desktop: 5 columns */
+    }
 }
 
 .game-card {

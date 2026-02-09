@@ -27,7 +27,7 @@
 
     <div class="hidden md:flex flex-1 max-w-xl mx-10">
       <div class="relative w-full">
-        <input type="text" placeholder="Search the metaverse..."
+        <input type="text" id="gameSearch" placeholder="Search the metaverse..."
           class="w-full bg-white/5 border border-white/10 rounded-2xl px-12 py-3 text-sm focus:outline-none focus:border-purple-500/50 transition-all text-white">
         <i class="fas fa-search absolute left-4 top-4 text-gray-600"></i>
       </div>
@@ -41,17 +41,21 @@
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <nav class="space-y-4">
-      <a href="#" class="sidebar-item active">
+      <button class="w-full text-left sidebar-item active" data-category="All">
         <i class="fas fa-home"></i> Home
-      </a>
+      </button>
       <a href="#" class="sidebar-item">
         <i class="fas fa-fire"></i> Trending
       </a>
       <div class="pt-4 border-t border-white/5">
         <h3 class="text-[10px] font-black text-gray-600 uppercase tracking-widest px-3 mb-2">Categories</h3>
-        <a href="#" class="sidebar-item"><i class="fas fa-gamepad"></i> Action</a>
-        <a href="#" class="sidebar-item"><i class="fas fa-car"></i> Racing</a>
-        <a href="#" class="sidebar-item"><i class="fas fa-brain"></i> Puzzle</a>
+        <button class="w-full text-left sidebar-item" data-category="Action"><i class="fas fa-gamepad"></i>
+          Action</button>
+        <button class="w-full text-left sidebar-item" data-category="Racing"><i class="fas fa-car"></i> Racing</button>
+        <button class="w-full text-left sidebar-item" data-category="Puzzle"><i class="fas fa-brain"></i>
+          Puzzle</button>
+        <button class="w-full text-left sidebar-item" data-category="Multiplayer"><i class="fas fa-users"></i>
+          Multiplayer</button>
       </div>
     </nav>
   </aside>
