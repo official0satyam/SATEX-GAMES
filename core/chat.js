@@ -5,13 +5,15 @@ import {
     signInWithEmailAndPassword,
     signInAnonymously,
     onAuthStateChanged,
-    updateProfile
+    updateProfile,
+    signOut
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import {
     getDatabase,
     ref,
     push,
     onChildAdded,
+    onValue,
     serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 import {
@@ -27,6 +29,7 @@ import {
     getDocs
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
+// 🔍 [CONFIG] Updated with Database URL
 const firebaseConfig = {
     apiKey: "AIzaSyBQySK9KiYjLqH_blaw8JCogk4TvAz5jH0",
     authDomain: "satex-games.firebaseapp.com",
@@ -34,7 +37,9 @@ const firebaseConfig = {
     storageBucket: "satex-games.firebasestorage.app",
     messagingSenderId: "1021871212512",
     appId: "1:1021871212512:web:ea54d97198a06b81550d85",
-    measurementId: "G-968393H9W2"
+    measurementId: "G-968393H9W2",
+    // ⬇️ CRITICAL: This URL is required for Realtime Database
+    databaseURL: "https://satex-games-default-rtdb.firebaseio.com"
 };
 
 // Initialize Firebase
@@ -44,6 +49,16 @@ const db = getDatabase(app);
 const firestore = getFirestore(app);
 
 const globalChatRef = ref(db, 'global_chat');
+const connectedRef = ref(db, ".info/connected");
+
+// 🔍 [DEBUG] Monitor Database Connection
+onValue(connectedRef, (snap) => {
+    if (snap.val() === true) {
+        console.log("✅ [FIREBASE] Connected to Realtime Database!");
+    } else {
+        console.log("❌ [FIREBASE] Disconnected. Check Console for 404/Permission errors.");
+    }
+});
 
 // UI Elements
 const sidebar = document.getElementById('chatSidebar');
@@ -62,48 +77,57 @@ let currentPrivateChatUser = null;
 // AUTHENTICATION LOGIC
 // ==========================================
 
-// Check Local Guest Session
+// Check Local Guest Session First
 const localGuest = localStorage.getItem('chat_guest_session');
+
 if (localGuest && !auth.currentUser) {
+    console.log("👤 [AUTH] Restoring Local Guest Session");
     currentUser = JSON.parse(localGuest);
     loginOverlay.style.display = 'none';
     loadGlobalChat();
-} else {
-    // Normal Auth Check
-    onAuthStateChanged(auth, async (user) => {
-        if (user) {
-            currentUser = user;
-            loginOverlay.style.display = 'none';
+}
 
-            // Sync User Data to Firestore if needed
-            syncUserProfile(user);
+onAuthStateChanged(auth, async (user) => {
+    if (user) {
+        console.log("👤 [AUTH] User Logged In:", user.uid);
+        currentUser = user;
+        // Clear local guest if real user logs in
+        localStorage.removeItem('chat_guest_session');
+        loginOverlay.style.display = 'none';
 
-            // Load Initial Data
-            loadGlobalChat();
-            loadFriends();
-        } else {
+        syncUserProfile(user);
+        loadGlobalChat();
+        loadFriends();
+    } else {
+        // Only show overlay if no local guest
+        if (!localStorage.getItem('chat_guest_session')) {
+            console.log("👤 [AUTH] No User - Showing Login");
             currentUser = null;
             loginOverlay.style.display = 'flex';
         }
-    });
-}
+    }
+});
 
 async function syncUserProfile(user) {
-    const userRef = doc(firestore, "users", user.uid);
-    const snap = await getDoc(userRef);
+    try {
+        const userRef = doc(firestore, "users", user.uid);
+        const snap = await getDoc(userRef);
 
-    if (!snap.exists()) {
-        await setDoc(userRef, {
-            username: user.displayName || `Guest_${user.uid.slice(0, 5)}`,
-            email: user.email,
-            uid: user.uid,
-            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
-            joined: new Date().toISOString(),
-            status: 'online',
-            friends: []
-        });
-    } else {
-        await updateDoc(userRef, { status: 'online' });
+        if (!snap.exists()) {
+            await setDoc(userRef, {
+                username: user.displayName || `Guest_${user.uid.slice(0, 5)}`,
+                email: user.email,
+                uid: user.uid,
+                avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
+                joined: new Date().toISOString(),
+                status: 'online',
+                friends: []
+            });
+        } else {
+            await updateDoc(userRef, { status: 'online' });
+        }
+    } catch (e) {
+        console.error("❌ [PROFILE] Sync User Error:", e);
     }
 }
 
@@ -127,42 +151,35 @@ document.getElementById('signupSubmitBtn')?.addEventListener('click', async () =
     const pass = document.getElementById('signupPassword').value;
     const errorDiv = document.getElementById('authError');
 
-    // Check unique username
-    const q = query(collection(firestore, "users"), where("username", "==", username));
-    const querySnapshot = await getDocs(q);
-    if (!querySnapshot.empty) {
-        errorDiv.textContent = "Username already taken";
-        return;
-    }
-
     try {
+        const q = query(collection(firestore, "users"), where("username", "==", username));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+            errorDiv.textContent = "Username already taken";
+            return;
+        }
+
         const cred = await createUserWithEmailAndPassword(auth, email, pass);
         await updateProfile(cred.user, { displayName: username });
-        // Correct profile creation handled by syncUserProfile via onAuthStateChanged
     } catch (e) {
         errorDiv.textContent = e.message;
     }
 });
 
-// Guest
+// Guest Mode (Hybrid: Local Mock to avoid Firebase Auth Errors)
 document.getElementById('guestLoginBtn')?.addEventListener('click', async () => {
-    // Simplified Guest Mode (Local Only)
-    const randomId = Math.floor(Math.random() * 10000);
+    console.log("👤 [AUTH] Starting Guest Mode...");
+    const randomId = Math.floor(Math.random() * 100000);
     const guestUser = {
         uid: `guest_${randomId}`,
         displayName: `Guest_${randomId}`,
         email: null,
-        isAnonymous: true
+        isGuest: true
     };
 
-    // Manually trigger "Login" state
     currentUser = guestUser;
-    loginOverlay.style.display = 'none';
-
-    // Create a temporary guest session
     localStorage.setItem('chat_guest_session', JSON.stringify(guestUser));
-
-    // Load Chat
+    loginOverlay.style.display = 'none';
     loadGlobalChat();
 });
 
@@ -181,34 +198,45 @@ function sendGlobalMessage() {
     const text = input.value.trim();
 
     if (text && currentUser) {
+        console.log("📤 [CHAT] Sending message:", text);
         push(globalChatRef, {
             user: currentUser.displayName || 'Guest',
             uid: currentUser.uid,
             text: text,
             timestamp: Date.now()
+        }).then(() => {
+            console.log("✅ [CHAT] Message Sent!");
+        }).catch((e) => {
+            console.error("❌ [CHAT] Send Failed:", e);
+            alert("Connection Error: Check Console.");
         });
         input.value = '';
+    } else {
+        console.warn("⚠️ [CHAT] Cannot send: No text or No user");
     }
 }
 
 function loadGlobalChat() {
     const container = document.getElementById('chatMessages');
-    // Clear existing listeners to prevent duplicates if function called multiple times
-    // (In a full app, you'd keep track of the listener function to off() it specifically)
+    console.log("🔄 [CHAT] Loading Chat Listener...");
+
+    // In a real app, remove old listeners first.
     container.innerHTML = '';
 
-    // Listen for new messages
     onChildAdded(globalChatRef, (snapshot) => {
         const msg = snapshot.val();
-        if (msg && msg.text) {
+        if (msg) {
+            // console.log("📩 [CHAT] Received:", msg);
             renderMessage(msg, container);
         }
+    }, (error) => {
+        console.error("❌ [CHAT] Listener Error:", error);
     });
 }
 
 function renderMessage(msg, container) {
     const div = document.createElement('div');
-    // Ensure both are strings for comparison
+    // Ensure accurate string comparison for UIDs
     const isMe = currentUser && String(msg.uid) === String(currentUser.uid);
 
     div.className = `chat-message ${isMe ? 'me' : 'other'}`;
@@ -233,47 +261,60 @@ function renderMessage(msg, container) {
 document.getElementById('addFriendBtn')?.addEventListener('click', async () => {
     const input = document.getElementById('addFriendInput');
     const targetUsername = input.value.trim();
+
+    if (currentUser?.isGuest) {
+        alert("Please login to use Friend features!");
+        return;
+    }
+
     if (!targetUsername || !currentUser) return;
 
-    // Find User ID by Username
-    const q = query(collection(firestore, "users"), where("username", "==", targetUsername));
-    const snapshot = await getDocs(q);
+    try {
+        const q = query(collection(firestore, "users"), where("username", "==", targetUsername));
+        const snapshot = await getDocs(q);
 
-    if (snapshot.empty) {
-        alert("User not found!");
-        return;
+        if (snapshot.empty) {
+            alert("User not found!");
+            return;
+        }
+
+        const targetUser = snapshot.docs[0].data();
+        if (targetUser.uid === currentUser.uid) {
+            alert("You cannot add yourself!");
+            return;
+        }
+
+        const myRef = doc(firestore, "users", currentUser.uid);
+        await updateDoc(myRef, {
+            friends: arrayUnion({
+                uid: targetUser.uid,
+                username: targetUser.username,
+                avatar: targetUser.avatar
+            })
+        });
+
+        alert(`Added ${targetUser.username} to friends!`);
+        input.value = '';
+        loadFriends();
+    } catch (e) {
+        console.error("❌ [FRIEND] Error:", e);
     }
-
-    const targetUser = snapshot.docs[0].data();
-    if (targetUser.uid === currentUser.uid) {
-        alert("You cannot add yourself!");
-        return;
-    }
-
-    // Add to My Friends
-    const myRef = doc(firestore, "users", currentUser.uid);
-    await updateDoc(myRef, {
-        friends: arrayUnion({
-            uid: targetUser.uid,
-            username: targetUser.username,
-            avatar: targetUser.avatar
-        })
-    });
-
-    alert(`Added ${targetUser.username} to friends!`);
-    input.value = '';
-    loadFriends(); // Refresh list
 });
 
 async function loadFriends() {
-    if (!currentUser) return;
-    const userRef = doc(firestore, "users", currentUser.uid);
-    const snap = await getDoc(userRef);
+    if (!currentUser || currentUser.isGuest) return;
 
-    if (snap.exists()) {
-        const data = snap.data();
-        const friends = data.friends || [];
-        renderFriendList(friends);
+    try {
+        const userRef = doc(firestore, "users", currentUser.uid);
+        const snap = await getDoc(userRef);
+
+        if (snap.exists()) {
+            const data = snap.data();
+            const friends = data.friends || [];
+            renderFriendList(friends);
+        }
+    } catch (e) {
+        console.error("❌ [FRIEND] Load Error:", e);
     }
 }
 
@@ -297,18 +338,16 @@ function renderFriendList(friends) {
 }
 
 // ==========================================
-// PRIVATE MESSAGES (Simplified 1-on-1)
+// PRIVATE MESSAGES
 // ==========================================
 
 window.openPrivateChat = function (targetUid, targetUsername) {
     currentPrivateChatUser = { uid: targetUid, username: targetUsername };
 
-    // Switch View
     friendListArea.style.display = 'none';
     privateChatArea.style.display = 'flex';
     document.getElementById('privateChatUser').textContent = `Chat with ${targetUsername}`;
 
-    // Load Messages (Using Realtime DB for simple private rooms: private_chats/UID1_UID2)
     loadPrivateMessages(targetUid);
 }
 
@@ -324,7 +363,6 @@ function loadPrivateMessages(targetUid) {
     const container = document.getElementById('privateMessages');
     container.innerHTML = '';
 
-    // Create a unique room ID (alphabetical order of UIDs ensures same room for both parties)
     const roomID = [currentUser.uid, targetUid].sort().join('_');
     currentPrivateRef = ref(db, `private_chats/${roomID}`);
 
@@ -358,17 +396,15 @@ window.switchTab = function (tab) {
     const tabs = document.querySelectorAll('.chat-tab');
     tabs.forEach(t => t.classList.remove('active'));
 
-    // Simple tab logic
     if (tab === 'global') {
         globalChatArea.style.display = 'flex';
         friendListArea.style.display = 'none';
-        privateChatArea.style.display = 'none'; // Close PM if open
+        privateChatArea.style.display = 'none';
         tabs[0].classList.add('active');
     } else {
         globalChatArea.style.display = 'none';
         friendListArea.style.display = 'flex';
         tabs[1].classList.add('active');
-        // Reload friends when opening tab
         loadFriends();
     }
 }
