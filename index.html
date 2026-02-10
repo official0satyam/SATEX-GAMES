@@ -138,37 +138,98 @@
     <div class="chat-header">
       <div class="flex items-center gap-2">
         <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-        <span class="font-bold">Global Chat</span>
+        <span class="font-bold">Social Hub</span>
       </div>
       <button onclick="toggleChat()" class="text-gray-400 hover:text-white transition-colors">
         <i class="fas fa-chevron-right"></i>
       </button>
     </div>
 
-    <div id="chatMessages" class="chat-messages">
-      <!-- Messages appended here -->
+    <!-- Chat Tabs -->
+    <div class="chat-tabs">
+      <button class="chat-tab active" onclick="switchTab('global')">Global</button>
+      <button class="chat-tab" onclick="switchTab('friends')">Friends</button>
     </div>
 
-    <div class="chat-input-area">
-      <input type="text" id="chatInput" placeholder="Say hello..."
-        class="chat-input focus:outline-none focus:border-purple-500 transition-colors">
-      <button id="sendBtn" class="chat-send-btn hover:opacity-90 transition-opacity">
-        <i class="fas fa-paper-plane"></i>
-      </button>
+    <!-- Global Chat Area -->
+    <div id="globalChatArea" class="flex flex-col flex-1 overflow-hidden">
+      <div id="chatMessages" class="chat-messages">
+        <!-- Global Messages -->
+      </div>
+      <div class="chat-input-area">
+        <input type="text" id="chatInput" placeholder="Global chat..."
+          class="chat-input focus:outline-none focus:border-purple-500 transition-colors">
+        <button id="sendBtn" class="chat-send-btn hover:opacity-90 transition-opacity">
+          <i class="fas fa-paper-plane"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Friend List Area -->
+    <div id="friendListArea" class="friend-list flex-col flex-1 overflow-hidden" style="display: none;">
+      <div class="add-friend-box">
+        <input type="text" id="addFriendInput" placeholder="Find friend (username)" class="chat-input text-xs"
+          style="margin:0;">
+        <button id="addFriendBtn" class="chat-send-btn" style="width: 32px; height: 32px;"><i
+            class="fas fa-plus"></i></button>
+      </div>
+      <div id="friendListContainer">
+        <!-- Dynamic Friend List -->
+      </div>
+    </div>
+
+    <!-- Private Chat Area (Hidden by default) -->
+    <div id="privateChatArea" class="flex flex-col flex-1 overflow-hidden" style="display: none;">
+      <div class="private-chat-header">
+        <span id="privateChatUser">User</span>
+        <button onclick="closePrivateChat()" class="text-xs hover:text-gray-300">Close</button>
+      </div>
+      <div id="privateMessages" class="chat-messages">
+        <!-- Private Messages -->
+      </div>
+      <div class="chat-input-area">
+        <input type="text" id="privateInput" placeholder="Private message..."
+          class="chat-input focus:outline-none focus:border-purple-500 transition-colors">
+        <button id="privateSendBtn" class="chat-send-btn hover:opacity-90 transition-opacity">
+          <i class="fas fa-paper-plane"></i>
+        </button>
+      </div>
     </div>
 
     <!-- Login Overlay -->
     <div id="chatLoginOverlay" class="chat-login-overlay">
-      <div class="w-full text-center">
+      <div class="auth-form">
         <div
           class="w-12 h-12 bg-purple-600/20 rounded-xl flex items-center justify-center mx-auto mb-4 border border-purple-500/20">
-          <i class="fas fa-comments text-purple-400 text-xl"></i>
+          <i class="fas fa-user-astronaut text-purple-400 text-xl"></i>
         </div>
-        <h3 class="font-black text-xl mb-1 text-white">Join the Chat</h3>
-        <p class="text-xs text-gray-500 mb-4 font-bold uppercase tracking-widest">Connect with other players</p>
-        <input type="text" id="usernameInput" placeholder="Enter Username"
-          class="chat-input w-full mb-3 text-center bg-black/40 border-purple-500/30 focus:border-purple-500 icon-placeholder">
-        <button id="loginBtn" class="neon-btn w-full py-3 text-sm">START CHATTING</button>
+        <h3 class="font-black text-xl mb-6 text-white text-center">PLAYER LOGIN</h3>
+
+        <!-- Login Form -->
+        <div id="loginForm">
+          <input type="email" id="emailInput" placeholder="Email" class="auth-input">
+          <input type="password" id="passwordInput" placeholder="Password" class="auth-input">
+          <button id="loginSubmitBtn" class="auth-btn">LOGIN</button>
+          <button id="guestLoginBtn" class="auth-btn secondary">PLAY AS GUEST</button>
+
+          <div class="text-center mt-3">
+            <span class="auth-switch" onclick="toggleAuthMode('signup')">New here? Create Account</span>
+          </div>
+        </div>
+
+        <!-- Signup Form -->
+        <div id="signupForm" style="display: none;">
+          <input type="text" id="signupUsername" placeholder="Choose Username" class="auth-input">
+          <input type="email" id="signupEmail" placeholder="Email" class="auth-input">
+          <input type="password" id="signupPassword" placeholder="Password" class="auth-input">
+          <button id="signupSubmitBtn" class="auth-btn">CREATE ACCOUNT</button>
+
+          <div class="text-center mt-3">
+            <span class="auth-switch" onclick="toggleAuthMode('login')">Already have an account? Login</span>
+          </div>
+        </div>
+
+        <div id="authError" class="text-red-500 text-xs text-center mt-2 font-bold min-h-[20px]"></div>
       </div>
     </div>
   </div>
