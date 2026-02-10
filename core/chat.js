@@ -272,21 +272,35 @@ document.getElementById('addFriendBtn')?.addEventListener('click', async () => {
     if (!targetUsername || !currentUser) return;
 
     try {
-        // Firestore queries are case-sensitive by default.
-        // Ensure you type the username EXACTLY as registered.
         const usersRef = collection(firestore, "users");
-        const q = query(usersRef, where("username", "==", targetUsername));
-        const snapshot = await getDocs(q);
 
-        if (snapshot.empty) {
-            console.warn(`⚠️ [FRIEND] User "${targetUsername}" not found.`);
-            // Fallback: Check if there's any user with that name (debugging)
-            // (In production, you'd use a dedicated 'username_lowercase' field for search)
-            alert(`User "${targetUsername}" not found! Note: Usernames are case-sensitive.`);
-            return;
+        // 1. Try Exact Match
+        let snapshot = await getDocs(query(usersRef, where("username", "==", targetUsername)));
+        let targetUser = null;
+
+        if (!snapshot.empty) {
+            targetUser = snapshot.docs[0].data();
+        } else {
+            console.warn(`⚠️ [FRIEND] Exact match failed. Scanning all users for "${targetUsername}"...`);
+            // 2. Fallback: Scan all users (OK for debugging/small apps)
+            try {
+                const allSnap = await getDocs(collection(firestore, "users"));
+                const match = allSnap.docs.find(d =>
+                    d.data().username?.toLowerCase() === targetUsername.toLowerCase()
+                );
+                if (match) {
+                    targetUser = match.data();
+                    console.log(`✅ [FRIEND] Found fuzzy match: ${targetUser.username}`);
+                }
+            } catch (err) {
+                console.error("Error scanning users:", err);
+            }
         }
 
-        const targetUser = snapshot.docs[0].data();
+        if (!targetUser) {
+            alert(`User "${targetUsername}" not found!`);
+            return;
+        }
         console.log("✅ [FRIEND] Found user:", targetUser);
 
         if (targetUser.uid === currentUser.uid) {
