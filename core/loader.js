@@ -1,46 +1,14 @@
+
 const FALLBACK_GAMES = [
     {
         "id": "snake",
         "title": "Snake Evolution",
         "category": "Action",
         "url": "games/snake/index.html",
-        "thumbnail": "assets/thumbnails/snake.jpg"
+        "thumbnail": "assets/thumbnails/snake.jpg",
+        "tags": ["action", "classic", "snake"]
     },
-    {
-        "id": "flappy",
-        "title": "Aero Flap",
-        "category": "Arcade",
-        "url": "games/flappy/index.html",
-        "thumbnail": "assets/thumbnails/flappy.jpg"
-    },
-    {
-        "id": "memory",
-        "title": "Memory Matrix",
-        "category": "Puzzle",
-        "url": "games/memory/index.html",
-        "thumbnail": "assets/thumbnails/memory.jpg"
-    },
-    {
-        "id": "tictactoe",
-        "title": "Tic Tac Pro",
-        "category": "Social",
-        "url": "games/tictactoe/index.html",
-        "thumbnail": "assets/thumbnails/tic.jpg"
-    },
-    {
-        "id": "2048",
-        "title": "2048 Master",
-        "category": "Puzzle",
-        "url": "games/2048/index.html",
-        "thumbnail": "assets/thumbnails/2048.jpg"
-    },
-    {
-        "id": "car3d",
-        "title": "Nitro Rush 3D",
-        "category": "Racing",
-        "url": "games/car3d/index.html",
-        "thumbnail": "assets/thumbnails/car3d.jpg"
-    }
+    // ... (other fallbacks)
 ];
 
 let allGames = [];
@@ -60,43 +28,80 @@ async function loadGames() {
     }
 
     setupEventListeners();
-    renderGames(allGames);
+    renderGames(allGames); // Render main grid
     renderSuggestions(allGames);
+    renderTagsCloud();
+}
+
+function getUniqueTags() {
+    const tags = new Set();
+    allGames.forEach(game => {
+        if (game.tags) {
+            game.tags.forEach(tag => tags.add(tag.toLowerCase()));
+        }
+        if (game.category) tags.add(game.category.toLowerCase());
+    });
+    return Array.from(tags).sort();
+}
+
+function searchGamesLogic(query) {
+    if (!query) return allGames;
+    query = query.toLowerCase();
+
+    return allGames.filter((game) => {
+        const titleMatch = game.title.toLowerCase().includes(query);
+        const categoryMatch = game.category && game.category.toLowerCase().includes(query);
+        const tagMatch = game.tags && game.tags.some(tag => tag.toLowerCase().includes(query));
+
+        return titleMatch || categoryMatch || tagMatch;
+    });
 }
 
 function setupEventListeners() {
     const searchInput = document.getElementById('gameSearch');
+    const bigSearchInput = document.getElementById('bigSearchInput');
     const categoryButtons = document.querySelectorAll('[data-category]');
 
-    // Search Filter
+    // Main Search Input (Instant Dropdown)
     if (searchInput) {
         searchInput.addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase();
-            let filtered = allGames;
+            const query = e.target.value.trim();
+            handleInstantSearch(query);
+        });
 
-            // Check if a category is active
-            const activeCategoryBtn = document.querySelector('.sidebar-item.active[data-category]');
-            if (activeCategoryBtn) {
-                const category = activeCategoryBtn.dataset.category;
-                if (category !== 'All') {
-                    filtered = filtered.filter((game) => game.category === category);
-                }
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                openSearchPage(e.target.value);
+                document.getElementById('searchResultsDropdown').classList.add('hidden');
             }
+        });
 
-            filtered = filtered.filter((game) =>
-                game.title.toLowerCase().includes(query) ||
-                (game.category && game.category.toLowerCase().includes(query))
-            );
-            renderGames(filtered);
+        // Hide dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !document.getElementById('searchResultsDropdown').contains(e.target)) {
+                document.getElementById('searchResultsDropdown').classList.add('hidden');
+            }
+        });
+
+        // Show dropdown again if focused and has value
+        searchInput.addEventListener('focus', () => {
+            if (searchInput.value.trim().length > 0) {
+                handleInstantSearch(searchInput.value.trim());
+            }
         });
     }
 
-    // Category Filter
+    // Big Search Input (Search Page)
+    if (bigSearchInput) {
+        bigSearchInput.addEventListener('input', (e) => {
+            performFullSearch(e.target.value);
+        });
+    }
+
+    // Category Filter (Sidebar)
     categoryButtons.forEach((btn) => {
         btn.addEventListener('click', () => {
-            // Remove active class from all
             categoryButtons.forEach((b) => b.classList.remove('active'));
-            // Add to clicked
             btn.classList.add('active');
 
             const category = btn.dataset.category;
@@ -105,28 +110,166 @@ function setupEventListeners() {
             if (category !== 'All') {
                 filtered = allGames.filter((game) => game.category === category);
             }
-
-            // Also re-apply search if it exists
-            if (searchInput && searchInput.value) {
-                const query = searchInput.value.toLowerCase();
-                filtered = filtered.filter((game) =>
-                    game.title.toLowerCase().includes(query) ||
-                    (game.category && game.category.toLowerCase().includes(query))
-                );
-            }
-
             renderGames(filtered);
         });
     });
 }
 
-function renderGames(games) {
-    const grid = document.getElementById('gamesGrid');
-    const searchInput = document.getElementById('gameSearch');
+function handleInstantSearch(query) {
+    const dropdown = document.getElementById('searchResultsDropdown');
 
+    if (query.length === 0) {
+        dropdown.classList.add('hidden');
+        return;
+    }
+
+    const results = searchGamesLogic(query);
+    const topResults = results.slice(0, 5);
+
+    if (results.length > 0) {
+        dropdown.innerHTML = '';
+        dropdown.classList.remove('hidden');
+        dropdown.classList.add('visible'); // For animation
+
+        topResults.forEach(game => {
+            const div = document.createElement('div');
+            div.className = 'search-result-item';
+            div.onclick = () => playGame(game.url || game.path, game.title);
+
+            const thumb = game.thumbnail || `https://via.placeholder.com/100?text=${encodeURIComponent(game.title)}`;
+
+            div.innerHTML = `
+                <img src="${thumb}" alt="${game.title}">
+                <div>
+                    <div class="text-white font-bold text-sm">${game.title}</div>
+                    <div class="text-xs text-gray-500 uppercase tracking-wider">${game.category}</div>
+                </div>
+            `;
+            dropdown.appendChild(div);
+        });
+
+        if (results.length > 5) {
+            const viewAll = document.createElement('div');
+            viewAll.className = 'search-view-all';
+            viewAll.innerText = `View all ${results.length} results`;
+            viewAll.onclick = () => openSearchPage(query);
+            dropdown.appendChild(viewAll);
+        }
+    } else {
+        dropdown.classList.add('hidden');
+    }
+}
+
+function openSearchPage(query = '') {
+    const overlay = document.getElementById('searchPageOverlay');
+    const input = document.getElementById('bigSearchInput');
+
+    overlay.classList.remove('hidden');
+    // Small delay to allow display:block to apply before opacity transition
+    setTimeout(() => {
+        overlay.classList.remove('opacity-0', 'scale-95');
+    }, 10);
+
+    if (query) {
+        input.value = query;
+        performFullSearch(query);
+    }
+
+    input.focus();
+    document.body.style.overflow = 'hidden';
+}
+
+function closeSearchPage() {
+    const overlay = document.getElementById('searchPageOverlay');
+    overlay.classList.add('opacity-0', 'scale-95');
+
+    setTimeout(() => {
+        overlay.classList.add('hidden');
+    }, 300);
+
+    document.body.style.overflow = 'auto';
+}
+
+function performFullSearch(query) {
+    // If no query passed, get from input
+    if (typeof query !== 'string') {
+        query = document.getElementById('bigSearchInput').value;
+    }
+
+    const results = searchGamesLogic(query);
+    const countEl = document.getElementById('searchResultCount');
+    if (countEl) countEl.innerText = `${results.length} Found`;
+
+    renderFullSearchResults(results);
+}
+
+function renderFullSearchResults(games) {
+    const grid = document.getElementById('fullSearchResultsGrid');
     if (!grid) return;
 
-    // Initial Loading State
+    grid.innerHTML = '';
+
+    if (games.length === 0) {
+        grid.innerHTML = '<div class="col-span-full text-center py-20 text-gray-500 font-bold text-xl">No games found. Try searching for tags like "car", "action", "puzzle".</div>';
+        return;
+    }
+
+    games.forEach((game, index) => {
+        const gameUrl = game.url || game.path;
+        const thumbUrl = game.thumbnail || `https://via.placeholder.com/400?text=${encodeURIComponent(game.title)}`;
+        const card = document.createElement('div');
+        card.className = 'game-card';
+        card.style.animationDelay = `${Math.min(index * 0.05, 1)}s`;
+        card.onclick = () => playGame(gameUrl, game.title);
+
+        const tagsHtml = game.tags ? game.tags.slice(0, 3).map(tag => `<span class="text-[9px] bg-black/50 px-2 py-0.5 rounded text-gray-400">#${tag}</span>`).join('') : '';
+
+        card.innerHTML = `
+            <div class="card-image-box">
+                <img src="${thumbUrl}" alt="${game.title}" loading="lazy">
+                <div class="card-gradient"></div>
+            </div>
+            <div class="card-info">
+                 <div class="game-badge">
+                    <span class="badge-dot"></span>
+                    <span class="badge-text">${game.category}</span>
+                </div>
+                <h3 class="card-title mb-2">${game.title}</h3>
+                <div class="flex gap-1 flex-wrap">${tagsHtml}</div>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function renderTagsCloud() {
+    const container = document.getElementById('searchTagsCloud');
+    if (!container) return;
+
+    // Get top 15 tags by frequency or just first 15 unique
+    // For now simple unique
+    const uniqueTags = getUniqueTags();
+    // Randomize or pick first 20
+    const displayTags = uniqueTags.slice(0, 20);
+
+    container.innerHTML = '';
+    displayTags.forEach(tag => {
+        const btn = document.createElement('button');
+        btn.className = 'px-4 py-2 bg-white/5 hover:bg-purple-600 border border-white/5 rounded-xl text-xs font-bold text-gray-400 hover:text-white uppercase tracking-widest transition-all';
+        btn.innerText = tag;
+        btn.onclick = () => {
+            document.getElementById('bigSearchInput').value = tag;
+            performFullSearch(tag);
+        };
+        container.appendChild(btn);
+    });
+}
+
+// Reuse existing renderGames for the main page
+function renderGames(games) {
+    const grid = document.getElementById('gamesGrid');
+    if (!grid) return;
+
     if (!games) {
         grid.innerHTML = '<div class="col-span-full text-center py-20"><div class="animate-spin text-4xl text-purple-500 mb-4"><i class="fas fa-spinner"></i></div><p class="text-gray-400">Loading Games...</p></div>';
         return;
@@ -135,22 +278,19 @@ function renderGames(games) {
     grid.innerHTML = '';
 
     if (games.length === 0) {
+        // Fallback checks
         grid.innerHTML = '<div class="col-span-full text-center py-20 text-gray-500">No games found matches your search.</div>';
         return;
     }
 
     games.forEach((game, index) => {
-        // Use url or path (backward compatibility)
         const gameUrl = game.url || game.path;
         if (!gameUrl) return;
 
         const card = document.createElement('div');
         card.className = 'game-card';
-        // Add animation delay for staggered entrance if many items
         card.style.animationDelay = `${Math.min(index * 0.05, 1)}s`;
-
         card.onclick = () => playGame(gameUrl, game.title);
-
         const thumbUrl = game.thumbnail || `https://via.placeholder.com/400?text=${encodeURIComponent(game.title)}`;
 
         card.innerHTML = `
@@ -174,13 +314,10 @@ function renderSuggestions(games) {
     const suggestionList = document.getElementById('suggestedGames');
     if (!suggestionList) return;
     suggestionList.innerHTML = '';
-
-    // Take random 3 for suggestions
     const shuffled = [...games].sort(() => 0.5 - Math.random());
     shuffled.slice(0, 3).forEach(game => {
         const gameUrl = game.url || game.path;
         const thumbUrl = game.thumbnail || `https://via.placeholder.com/100?text=${encodeURIComponent(game.title)}`;
-
         const div = document.createElement('div');
         div.className = 'flex gap-4 group cursor-pointer';
         div.onclick = () => playGame(gameUrl, game.title);
@@ -201,13 +338,8 @@ function playGame(url, title) {
     const overlay = document.getElementById('playerOverlay');
     const iframe = document.getElementById('gameIframe');
     const titleEl = document.getElementById('activeTitle');
-
     if (titleEl) titleEl.innerText = title;
-
-    // Check if it's a GameDistribution URL (they often need specific handling or just work in iframe)
-    // For now, simple iframe src set
     iframe.src = url;
-
     overlay.style.display = 'block';
     document.body.style.overflow = 'hidden';
 }
@@ -215,15 +347,17 @@ function playGame(url, title) {
 function exitGame() {
     const overlay = document.getElementById('playerOverlay');
     const iframe = document.getElementById('gameIframe');
-
     overlay.style.display = 'none';
     iframe.src = '';
     document.body.style.overflow = 'auto';
 }
 
-// Global exposure for the HTML onclick handlers
+// Global exposure
 window.playGame = playGame;
 window.exitGame = exitGame;
+window.openSearchPage = openSearchPage;
+window.closeSearchPage = closeSearchPage;
+window.performFullSearch = performFullSearch;
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', loadGames);

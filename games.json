@@ -3,120 +3,245 @@
     "title": "Snake Evolution",
     "category": "Action",
     "thumbnail": "assets/thumbnails/snake.jpg",
-    "url": "games/snake/index.html"
+    "url": "games/snake/index.html",
+    "tags": [
+      "action",
+      "slither",
+      "classic",
+      "reptile"
+    ]
   },
   {
     "title": "Aero Flap",
     "category": "Arcade",
     "thumbnail": "assets/thumbnails/flappy.jpg",
-    "url": "games/flappy/index.html"
+    "url": "games/flappy/index.html",
+    "tags": [
+      "flying",
+      "physics",
+      "arcade",
+      "animal"
+    ]
   },
   {
     "title": "Memory Matrix",
     "category": "Puzzle",
     "thumbnail": "assets/thumbnails/memory.jpg",
-    "url": "games/memory/index.html"
+    "url": "games/memory/index.html",
+    "tags": [
+      "brain",
+      "strategy",
+      "thinking",
+      "puzzle"
+    ]
   },
   {
     "title": "Tic Tac Pro",
     "category": "Social",
     "thumbnail": "assets/thumbnails/tic.jpg",
-    "url": "games/tictactoe/index.html"
+    "url": "games/tictactoe/index.html",
+    "tags": [
+      "social"
+    ]
   },
   {
     "title": "2048 Master",
     "category": "Puzzle",
     "thumbnail": "assets/thumbnails/2048.jpg",
-    "url": "games/2048/index.html"
+    "url": "games/2048/index.html",
+    "tags": [
+      "brain",
+      "strategy",
+      "thinking",
+      "puzzle"
+    ]
   },
   {
     "title": "Nitro Rush 3D",
     "category": "Racing",
     "thumbnail": "assets/thumbnails/car3d.jpg",
-    "url": "games/car3d/index.html"
+    "url": "games/car3d/index.html",
+    "tags": [
+      "racing",
+      "driving",
+      "automotive",
+      "vehicle",
+      "fast"
+    ]
   },
   {
     "title": "Subway Surfers",
     "category": "Action",
     "thumbnail": "https://img.gamedistribution.com/b57c15d037024b798c2e80efbca087cc-512x384.jpg",
-    "url": "https://html5.gamedistribution.com/b57c15d037024b798c2e80efbca087cc/?gd_sdk_referrer_url=https://gamedistribution.com/games/two-stunt-supercars/"
+    "url": "https://html5.gamedistribution.com/b57c15d037024b798c2e80efbca087cc/?gd_sdk_referrer_url=https://gamedistribution.com/games/two-stunt-supercars/",
+    "tags": [
+      "action",
+      "survival",
+      "parkour",
+      "endless runner"
+    ]
   },
   {
     "title": "Temple Run 2",
     "category": "Action",
     "thumbnail": "https://img.gamedistribution.com/c465243884c6439294e3391d3745283c-512x512.jpeg",
-    "url": "https://html5.gamedistribution.com/c465243884c6439294e3391d3745283c/"
+    "url": "https://html5.gamedistribution.com/c465243884c6439294e3391d3745283c/",
+    "tags": [
+      "action",
+      "survival",
+      "parkour",
+      "endless runner"
+    ]
   },
   {
     "title": "Candy Crush Saga",
     "category": "Puzzle",
     "thumbnail": "https://img.gamedistribution.com/example-candy-crush.jpg",
-    "url": "https://html5.gamedistribution.com/example-candy-crush/"
+    "url": "https://html5.gamedistribution.com/example-candy-crush/",
+    "tags": [
+      "thinking",
+      "food",
+      "brain",
+      "strategy",
+      "casual",
+      "puzzle",
+      "colorful"
+    ]
   },
   {
     "title": "Angry Birds",
     "category": "Puzzle",
     "thumbnail": "https://img.gamedistribution.com/example-angry-birds.jpg",
-    "url": "https://html5.gamedistribution.com/example-angry-birds/"
+    "url": "https://html5.gamedistribution.com/example-angry-birds/",
+    "tags": [
+      "thinking",
+      "physics",
+      "brain",
+      "strategy",
+      "puzzle",
+      "flying",
+      "animal"
+    ]
   },
   {
     "title": "Fruit Ninja",
     "category": "Arcade",
     "thumbnail": "https://img.gamedistribution.com/example-fruit-ninja.jpg",
-    "url": "https://html5.gamedistribution.com/example-fruit-ninja/"
+    "url": "https://html5.gamedistribution.com/example-fruit-ninja/",
+    "tags": [
+      "food",
+      "casual",
+      "colorful",
+      "arcade"
+    ]
   },
   {
     "title": "Hill Climb Racing",
     "category": "Racing",
     "thumbnail": "https://img.gamedistribution.com/example-hill-climb.jpg",
-    "url": "https://html5.gamedistribution.com/example-hill-climb/"
+    "url": "https://html5.gamedistribution.com/example-hill-climb/",
+    "tags": [
+      "racing",
+      "driving",
+      "automotive",
+      "vehicle",
+      "fast"
+    ]
   },
   {
     "title": "Slither.io",
     "category": "Multiplayer",
     "thumbnail": "https://img.gamedistribution.com/example-slither.jpg",
-    "url": "https://html5.gamedistribution.com/example-slither/"
+    "url": "https://html5.gamedistribution.com/example-slither/",
+    "tags": [
+      "multiplayer",
+      "online",
+      "io",
+      "competitive"
+    ]
   },
   {
     "title": "Paper.io 2",
     "category": "Multiplayer",
     "thumbnail": "https://img.gamedistribution.com/example-paperio.jpg",
-    "url": "https://html5.gamedistribution.com/example-paperio/"
+    "url": "https://html5.gamedistribution.com/example-paperio/",
+    "tags": [
+      "multiplayer",
+      "online",
+      "io",
+      "competitive"
+    ]
   },
   {
     "title": "Geometry Dash",
     "category": "Arcade",
     "thumbnail": "https://img.gamedistribution.com/example-geometry.jpg",
-    "url": "https://html5.gamedistribution.com/example-geometry/"
+    "url": "https://html5.gamedistribution.com/example-geometry/",
+    "tags": [
+      "arcade"
+    ]
   },
   {
     "title": "Bad Piggies",
     "category": "Puzzle",
     "thumbnail": "https://img.gamedistribution.com/example-bad-piggies.jpg",
-    "url": "https://html5.gamedistribution.com/example-bad-piggies/"
+    "url": "https://html5.gamedistribution.com/example-bad-piggies/",
+    "tags": [
+      "brain",
+      "strategy",
+      "thinking",
+      "puzzle"
+    ]
   },
   {
     "title": "Cut the Rope",
     "category": "Puzzle",
     "thumbnail": "https://img.gamedistribution.com/example-cut-rope.jpg",
-    "url": "https://html5.gamedistribution.com/example-cut-rope/"
+    "url": "https://html5.gamedistribution.com/example-cut-rope/",
+    "tags": [
+      "thinking",
+      "food",
+      "brain",
+      "strategy",
+      "casual",
+      "puzzle",
+      "colorful"
+    ]
   },
   {
     "title": "Doodle Jump",
     "category": "Arcade",
     "thumbnail": "https://img.gamedistribution.com/example-doodle.jpg",
-    "url": "https://html5.gamedistribution.com/example-doodle/"
+    "url": "https://html5.gamedistribution.com/example-doodle/",
+    "tags": [
+      "survival",
+      "parkour",
+      "endless runner",
+      "arcade"
+    ]
   },
   {
     "title": "Jetpack Joyride",
     "category": "Action",
     "thumbnail": "https://img.gamedistribution.com/example-jetpack.jpg",
-    "url": "https://html5.gamedistribution.com/example-jetpack/"
+    "url": "https://html5.gamedistribution.com/example-jetpack/",
+    "tags": [
+      "action",
+      "survival",
+      "parkour",
+      "endless runner"
+    ]
   },
   {
     "title": "Plants vs Zombies",
     "category": "Strategy",
     "thumbnail": "https://img.gamedistribution.com/example-pvz.jpg",
-    "url": "https://html5.gamedistribution.com/example-pvz/"
+    "url": "https://html5.gamedistribution.com/example-pvz/",
+    "tags": [
+      "defense",
+      "undead",
+      "strategy",
+      "horror"
+    ]
   }
 ]

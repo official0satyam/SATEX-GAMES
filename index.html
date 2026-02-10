@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="core/midnight.css">
+  <link rel="stylesheet" href="core/midnight_search.css">
 </head>
 
 <body>
@@ -26,10 +27,17 @@
     </div>
 
     <div class="hidden md:flex flex-1 max-w-xl mx-10">
-      <div class="relative w-full">
+      <div class="relative w-full group">
         <input type="text" id="gameSearch" placeholder="Search the metaverse..."
-          class="w-full bg-white/5 border border-white/10 rounded-2xl px-12 py-3 text-sm focus:outline-none focus:border-purple-500/50 transition-all text-white">
-        <i class="fas fa-search absolute left-4 top-4 text-gray-600"></i>
+          class="w-full bg-white/5 border border-white/10 rounded-2xl px-12 py-3 text-sm focus:outline-none focus:border-purple-500/50 transition-all text-white placeholder-gray-500 focus:bg-white/10">
+        <i
+          class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-purple-500 transition-colors"></i>
+
+        <!-- Instant Search Dropdown -->
+        <div id="searchResultsDropdown"
+          class="hidden absolute top-full left-0 right-0 mt-2 bg-[#0f0f13]/95 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl shadow-purple-900/20 z-50">
+          <!-- Content injected by JS -->
+        </div>
       </div>
     </div>
 
@@ -240,6 +248,54 @@
     style="display: flex;">
     <i class="fas fa-comments"></i>
   </button>
+
+  <!-- SEARCH PAGE OVERLAY -->
+  <div id="searchPageOverlay"
+    class="fixed inset-0 bg-[#050507]/98 backdrop-blur-xl z-[2500] hidden overflow-y-auto transform transition-all duration-300 opacity-0 scale-95">
+    <div class="max-w-7xl mx-auto px-6 py-8 min-h-screen flex flex-col">
+      <!-- Header -->
+      <div
+        class="flex items-center gap-6 mb-12 sticky top-0 bg-[#050507]/95 backdrop-blur-xl p-4 -mx-4 z-10 border-b border-white/5">
+        <button onclick="closeSearchPage()"
+          class="w-12 h-12 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 hover:text-purple-400 text-gray-400 transition-all border border-white/5 group">
+          <i class="fas fa-arrow-left text-lg group-hover:-translate-x-1 transition-transform"></i>
+        </button>
+        <div class="flex-1 relative group">
+          <input type="text" id="bigSearchInput" placeholder="Search games..."
+            class="w-full bg-transparent text-xl md:text-3xl font-black text-white placeholder-white/10 focus:outline-none border-none caret-purple-500">
+          <div
+            class="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-purple-600 to-blue-500 w-0 group-focus-within:w-full transition-all duration-500">
+          </div>
+        </div>
+        <button onclick="performFullSearch()"
+          class="w-12 h-12 flex items-center justify-center rounded-2xl bg-purple-600 hover:bg-purple-500 text-white transition-all shadow-lg shadow-purple-600/30 hover:scale-105 active:scale-95">
+          <i class="fas fa-search"></i>
+        </button>
+      </div>
+
+      <!-- Tags Cloud -->
+      <div class="mb-12">
+        <h2 class="text-xs font-black text-gray-600 uppercase tracking-[0.2em] mb-4">Trending Tags</h2>
+        <div class="flex flex-wrap gap-3" id="searchTagsCloud">
+          <!-- Dynamic tags -->
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div class="flex-1">
+        <div class="flex items-baseline justify-between mb-8 border-b border-white/5 pb-4">
+          <h2 class="text-2xl font-black text-white tracking-tight">Search Results</h2>
+          <span id="searchResultCount"
+            class="text-purple-400 font-bold bg-purple-500/10 px-3 py-1 rounded-lg border border-purple-500/20">0
+            Found</span>
+        </div>
+
+        <div id="fullSearchResultsGrid" class="games-grid pb-20">
+          <!-- Results -->
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="core/loader.js"></script>
   <script type="module" src="core/chat.js"></script>
