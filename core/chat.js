@@ -34,12 +34,12 @@ const firebaseConfig = {
     apiKey: "AIzaSyBQySK9KiYjLqH_blaw8JCogk4TvAz5jH0",
     authDomain: "satex-games.firebaseapp.com",
     projectId: "satex-games",
-    storageBucket: "satex-games.firebasestorage.app",
+    storageBucket: "satex-games.appspot.com",
     messagingSenderId: "1021871212512",
     appId: "1:1021871212512:web:ea54d97198a06b81550d85",
     measurementId: "G-968393H9W2",
-    // ⬇️ CRITICAL: This URL is required for Realtime Database
-    databaseURL: "https://satex-games-default-rtdb.firebaseio.com"
+    // ⬇️ CRITICAL: Updated via Console Feedback
+    databaseURL: "https://satex-games-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
 
 // Initialize Firebase
