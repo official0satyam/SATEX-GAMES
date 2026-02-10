@@ -73,6 +73,7 @@ function handleInstantSearch(query) {
     const dropdown = document.getElementById('searchResultsDropdown');
 
     if (query.length === 0) {
+        dropdown.classList.remove('visible');
         dropdown.classList.add('hidden');
         return;
     }
@@ -90,7 +91,8 @@ function handleInstantSearch(query) {
             div.className = 'search-result-item';
             div.onclick = () => {
                 playGame(game.url || game.path, game.title);
-                dropdown.classList.add('hidden'); // Close after selection
+                dropdown.classList.remove('visible'); // Close after selection
+                dropdown.classList.add('hidden');
                 document.getElementById('gameSearch').value = ''; // Clear input
             };
 
@@ -112,11 +114,13 @@ function handleInstantSearch(query) {
             viewAll.innerText = `View all ${results.length} results`;
             viewAll.onclick = () => {
                 openSearchPage(query);
+                dropdown.classList.remove('visible');
                 dropdown.classList.add('hidden');
             };
             dropdown.appendChild(viewAll);
         }
     } else {
+        dropdown.classList.remove('visible');
         dropdown.classList.add('hidden');
     }
 }
@@ -135,6 +139,7 @@ function setupEventListeners() {
         searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 openSearchPage(e.target.value);
+                document.getElementById('searchResultsDropdown').classList.remove('visible');
                 document.getElementById('searchResultsDropdown').classList.add('hidden');
             }
         });
@@ -142,8 +147,13 @@ function setupEventListeners() {
         // GLOBAL CLICK LISTENER to close dropdown
         document.addEventListener('click', (e) => {
             const dropdown = document.getElementById('searchResultsDropdown');
+            const searchInput = document.getElementById('gameSearch');
+
+            if (!dropdown || !searchInput) return;
+
             // If click is OUTSIDE the search input AND OUTSIDE the dropdown
             if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.classList.remove('visible');
                 dropdown.classList.add('hidden');
             }
         });
