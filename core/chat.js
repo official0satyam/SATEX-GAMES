@@ -62,22 +62,31 @@ let currentPrivateChatUser = null;
 // AUTHENTICATION LOGIC
 // ==========================================
 
-onAuthStateChanged(auth, async (user) => {
-    if (user) {
-        currentUser = user;
-        loginOverlay.style.display = 'none';
+// Check Local Guest Session
+const localGuest = localStorage.getItem('chat_guest_session');
+if (localGuest && !auth.currentUser) {
+    currentUser = JSON.parse(localGuest);
+    loginOverlay.style.display = 'none';
+    loadGlobalChat();
+} else {
+    // Normal Auth Check
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            currentUser = user;
+            loginOverlay.style.display = 'none';
 
-        // Sync User Data to Firestore if needed
-        syncUserProfile(user);
+            // Sync User Data to Firestore if needed
+            syncUserProfile(user);
 
-        // Load Initial Data
-        loadGlobalChat();
-        loadFriends();
-    } else {
-        currentUser = null;
-        loginOverlay.style.display = 'flex';
-    }
-});
+            // Load Initial Data
+            loadGlobalChat();
+            loadFriends();
+        } else {
+            currentUser = null;
+            loginOverlay.style.display = 'flex';
+        }
+    });
+}
 
 async function syncUserProfile(user) {
     const userRef = doc(firestore, "users", user.uid);
@@ -137,11 +146,24 @@ document.getElementById('signupSubmitBtn')?.addEventListener('click', async () =
 
 // Guest
 document.getElementById('guestLoginBtn')?.addEventListener('click', async () => {
-    try {
-        await signInAnonymously(auth);
-    } catch (e) {
-        document.getElementById('authError').textContent = e.message;
-    }
+    // Simplified Guest Mode (Local Only)
+    const randomId = Math.floor(Math.random() * 10000);
+    const guestUser = {
+        uid: `guest_${randomId}`,
+        displayName: `Guest_${randomId}`,
+        email: null,
+        isAnonymous: true
+    };
+
+    // Manually trigger "Login" state
+    currentUser = guestUser;
+    loginOverlay.style.display = 'none';
+
+    // Create a temporary guest session
+    localStorage.setItem('chat_guest_session', JSON.stringify(guestUser));
+
+    // Load Chat
+    loadGlobalChat();
 });
 
 // ==========================================
@@ -171,17 +193,23 @@ function sendGlobalMessage() {
 
 function loadGlobalChat() {
     const container = document.getElementById('chatMessages');
-    container.innerHTML = ''; // Clear for fresh load logic if needed, usually onChildAdded appends
+    // Clear existing listeners to prevent duplicates if function called multiple times
+    // (In a full app, you'd keep track of the listener function to off() it specifically)
+    container.innerHTML = '';
 
+    // Listen for new messages
     onChildAdded(globalChatRef, (snapshot) => {
         const msg = snapshot.val();
-        renderMessage(msg, container);
+        if (msg && msg.text) {
+            renderMessage(msg, container);
+        }
     });
 }
 
 function renderMessage(msg, container) {
     const div = document.createElement('div');
-    const isMe = currentUser && msg.uid === currentUser.uid;
+    // Ensure both are strings for comparison
+    const isMe = currentUser && String(msg.uid) === String(currentUser.uid);
 
     div.className = `chat-message ${isMe ? 'me' : 'other'}`;
     const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
