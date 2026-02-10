@@ -62,6 +62,12 @@ onAuthStateChanged(auth, async (user) => {
         // Auto-fix profile if missing OR if username is "Guest_" but we have a real name now
         await syncUserProfile(user);
 
+        // Push to UI Manager (Profile Page)
+        if (window.updateProfileData) {
+            const snap = await getDoc(doc(firestore, "users", user.uid));
+            if (snap.exists()) window.updateProfileData(user, snap.data());
+        }
+
         loadGlobalChat();
         loadFriends();
     } else {
@@ -187,11 +193,19 @@ document.getElementById('chatInput')?.addEventListener('keypress', (e) => {
 });
 
 function loadGlobalChat() {
-    const container = document.getElementById('chatMessages');
-    container.innerHTML = '';
+    // Supports both Old Overlay and New Chat View
+    const container = document.getElementById('chatMessages'); // overlay
+    const newContainer = document.getElementById('chat-messages-area'); // new view
+
+    if (container) container.innerHTML = '';
+    if (newContainer) newContainer.innerHTML = '';
+
     onChildAdded(globalChatRef, (snapshot) => {
         const msg = snapshot.val();
-        if (msg) renderMessage(msg, container);
+        if (msg) {
+            if (container) renderMessage(msg, container);
+            if (newContainer && activeTabGlobal()) renderMessage(msg, newContainer);
+        }
     });
 }
 

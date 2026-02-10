@@ -264,12 +264,20 @@
     }
 
     .chat-input-container {
-        position: sticky;
-        bottom: 0;
+        position: fixed;
+        /* Changed from sticky to fixed to sit above nav */
+        bottom: calc(60px + env(safe-area-inset-bottom));
+        left: 0;
+        right: 0;
         background: rgba(5, 5, 7, 0.95);
         backdrop-filter: blur(10px);
         padding: 10px;
-        padding-bottom: max(10px, env(safe-area-inset-bottom));
         z-index: 50;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .chat-messages-area {
+        padding-bottom: 140px !important;
+        /* Make space for input + nav */
     }
 }
