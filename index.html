@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Midnight Play | Arcade Lobby</title>
+  <title>SATEX Games | Play Web Games</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
@@ -20,9 +20,9 @@
       <button onclick="toggleSidebar()" class="p-2 hover:bg-white/5 rounded-xl lg:hidden">
         <i class="fas fa-bars"></i>
       </button>
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 bg-gradient-to-tr from-purple-600 to-blue-400 rounded-lg"></div>
-        <div class="text-2xl font-black tracking-tighter">MIDNIGHT<span class="text-purple-500">PLAY</span></div>
+      <div class="flex items-center gap-2 cursor-pointer" onclick="window.location.href='index.html'">
+        <img src="assets/icons/logo.jpg" alt="Logo" class="w-8 h-8 rounded-lg object-cover">
+        <div class="text-2xl font-black tracking-tighter">SATEX <span class="text-purple-500">GAMES</span></div>
       </div>
     </div>
 
@@ -42,26 +42,37 @@
     </div>
 
     <div class="flex items-center gap-4">
-      <button class="neon-btn">Join Club</button>
+      <!-- 'Join Club' removed -->
     </div>
   </header>
 
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <nav class="space-y-4">
-      <button class="w-full text-left sidebar-item active" data-category="All">
+      <button class="w-full text-left sidebar-item active" data-category="All" id="btnHome">
         <i class="fas fa-home"></i> Home
       </button>
-      <a href="#" class="sidebar-item">
-        <i class="fas fa-fire"></i> Trending
-      </a>
+      <button class="w-full text-left sidebar-item" data-special="recent" id="btnRecent">
+        <i class="fas fa-history"></i> Recently Played
+      </button>
+      <button class="w-full text-left sidebar-item" data-special="new" id="btnNew">
+        <i class="fas fa-star"></i> New Games
+      </button>
+      <button class="w-full text-left sidebar-item" data-special="popular" id="btnPopular">
+        <i class="fas fa-fire"></i> Popular
+      </button>
+
       <div class="pt-4 border-t border-white/5">
         <h3 class="text-[10px] font-black text-gray-600 uppercase tracking-widest px-3 mb-2">Categories</h3>
         <button class="w-full text-left sidebar-item" data-category="Action"><i class="fas fa-gamepad"></i>
           Action</button>
+        <button class="w-full text-left sidebar-item" data-category="Adventure"><i class="fas fa-compass"></i>
+          Adventure</button>
         <button class="w-full text-left sidebar-item" data-category="Racing"><i class="fas fa-car"></i> Racing</button>
         <button class="w-full text-left sidebar-item" data-category="Puzzle"><i class="fas fa-brain"></i>
           Puzzle</button>
+        <button class="w-full text-left sidebar-item" data-category="Sports"><i class="fas fa-basketball-ball"></i>
+          Sports</button>
         <button class="w-full text-left sidebar-item" data-category="Multiplayer"><i class="fas fa-users"></i>
           Multiplayer</button>
       </div>
