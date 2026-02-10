@@ -4,13 +4,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
   <title>SATEX Games | Play Web Games</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="core/midnight.css">
   <link rel="stylesheet" href="core/midnight_search.css">
+  <link rel="stylesheet" href="core/profile_chat.css">
 </head>
 
 <body>
@@ -43,7 +44,7 @@
     </div>
 
     <div class="flex items-center gap-4">
-      <button
+      <button onclick="switchView('profile')"
         class="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all border border-white/10 group">
         <i class="fas fa-user-circle text-2xl text-gray-400 group-hover:text-purple-400"></i>
       </button>
@@ -53,7 +54,7 @@
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <nav class="space-y-4">
-      <button class="w-full text-left sidebar-item active" data-category="All" id="btnHome">
+      <button class="w-full text-left sidebar-item active" data-view="home" id="btnHome">
         <i class="fas fa-home"></i> Home
       </button>
       <button class="w-full text-left sidebar-item" data-special="recent" id="btnRecent">
@@ -85,17 +86,47 @@
 
   <!-- Main Grid -->
   <main class="main-container" id="mainContainer">
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
-      <div>
-        <h1 class="text-4xl font-black text-white tracking-tight mb-1">Epic Adventures</h1>
-        <p class="text-gray-500 font-medium">Original games, professional portal.</p>
+    <!-- HOME VIEW -->
+    <div id="view-home" class="view-section active">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
+        <div>
+          <h1 class="text-4xl font-black text-white tracking-tight mb-1">Epic Adventures</h1>
+          <p class="text-gray-500 font-medium">Original games, professional portal.</p>
+        </div>
+      </div>
+
+      <div id="gamesGrid" class="games-grid">
+        <!-- Dynamic loading from loader.js -->
       </div>
     </div>
 
-    <div id="gamesGrid" class="games-grid">
-      <!-- Dynamic loading from loader.js -->
+    <!-- PROFILE VIEW -->
+    <div id="view-profile" class="view-section">
+      <!-- Injected by JS -->
+    </div>
+
+    <!-- CHAT VIEW -->
+    <div id="view-chat" class="view-section h-full">
+      <!-- Injected by JS -->
     </div>
   </main>
+
+  <!-- BOTTOM NAVIGATION (Mobile Only) -->
+  <nav class="bottom-nav md:hidden">
+    <button class="bottom-nav-item active" onclick="switchView('home')">
+      <i class="fas fa-home"></i>
+      <span>Home</span>
+    </button>
+    <button class="bottom-nav-item relative" onclick="switchView('chat')">
+      <i class="fas fa-comments"></i>
+      <span class="absolute top-2 right-8 w-2 h-2 bg-red-500 rounded-full hidden" id="mobileChatDot"></span>
+      <span>Chat</span>
+    </button>
+    <button class="bottom-nav-item" onclick="switchView('profile')">
+      <i class="fas fa-user"></i>
+      <span>Profile</span>
+    </button>
+  </nav>
 
   <!-- THEATER MODE OVERLAY -->
   <div class="player-overlay" id="playerOverlay">
@@ -266,8 +297,8 @@
   </div>
 
   <!-- Floating Chat Toggle -->
-  <button id="chatFloatingBtn" onclick="toggleChat()"
-    class="fixed right-5 bottom-5 w-12 h-12 bg-purple-600 hover:bg-purple-500 text-white rounded-full shadow-lg shadow-purple-500/40 z-50 flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+  <button id="chatFloatingBtn" onclick="switchView('chat')"
+    class="fixed right-5 bottom-24 md:bottom-5 w-12 h-12 bg-purple-600 hover:bg-purple-500 text-white rounded-full shadow-lg shadow-purple-500/40 z-50 flex items-center justify-center transition-all hover:scale-110 active:scale-95"
     style="display: flex;">
     <i class="fas fa-comments"></i>
   </button>
@@ -320,9 +351,16 @@
     </div>
   </div>
 
+  <script src="core/ui_manager.js"></script>
   <script src="core/loader.js"></script>
   <script type="module" src="core/chat.js"></script>
   <script>
+    // Initialize UI on load
+    document.addEventListener('DOMContentLoaded', () => {
+      // Default view
+      switchView('home');
+    });
+
     function toggleSidebar() {
       const sb = document.getElementById('sidebar');
       sb.style.transform = (sb.style.transform === 'translateX(0px)') ? 'translateX(-100%)' : 'translateX(0px)';
