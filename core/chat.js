@@ -262,6 +262,8 @@ document.getElementById('addFriendBtn')?.addEventListener('click', async () => {
     const input = document.getElementById('addFriendInput');
     const targetUsername = input.value.trim();
 
+    console.log(`🔍 [FRIEND] Searching for: "${targetUsername}"`);
+
     if (currentUser?.isGuest) {
         alert("Please login to use Friend features!");
         return;
@@ -270,15 +272,23 @@ document.getElementById('addFriendBtn')?.addEventListener('click', async () => {
     if (!targetUsername || !currentUser) return;
 
     try {
-        const q = query(collection(firestore, "users"), where("username", "==", targetUsername));
+        // Firestore queries are case-sensitive by default.
+        // Ensure you type the username EXACTLY as registered.
+        const usersRef = collection(firestore, "users");
+        const q = query(usersRef, where("username", "==", targetUsername));
         const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
-            alert("User not found!");
+            console.warn(`⚠️ [FRIEND] User "${targetUsername}" not found.`);
+            // Fallback: Check if there's any user with that name (debugging)
+            // (In production, you'd use a dedicated 'username_lowercase' field for search)
+            alert(`User "${targetUsername}" not found! Note: Usernames are case-sensitive.`);
             return;
         }
 
         const targetUser = snapshot.docs[0].data();
+        console.log("✅ [FRIEND] Found user:", targetUser);
+
         if (targetUser.uid === currentUser.uid) {
             alert("You cannot add yourself!");
             return;
@@ -293,11 +303,13 @@ document.getElementById('addFriendBtn')?.addEventListener('click', async () => {
             })
         });
 
+        console.log("✅ [FRIEND] Friend added successfully!");
         alert(`Added ${targetUser.username} to friends!`);
         input.value = '';
         loadFriends();
     } catch (e) {
         console.error("❌ [FRIEND] Error:", e);
+        alert("Error adding friend. Check console.");
     }
 });
 
