@@ -27,7 +27,6 @@ import {
     getDocs
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-// [REMOVED GUEST HYBRID LOGIC FOR FRESH START]
 const firebaseConfig = {
     apiKey: "AIzaSyBQySK9KiYjLqH_blaw8JCogk4TvAz5jH0",
     authDomain: "satex-games.firebaseapp.com",
@@ -39,7 +38,7 @@ const firebaseConfig = {
     databaseURL: "https://satex-games-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
 
-// Initialize Firebase
+// Initialize
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
@@ -49,7 +48,7 @@ const globalChatRef = ref(db, 'global_chat');
 let currentUser = null;
 
 // ==========================================
-// 1. FRESH AUTH LOGIC
+// 1. ROBUST AUTH & PROFILE MANAGEMENT
 // ==========================================
 
 onAuthStateChanged(auth, async (user) => {
@@ -60,39 +59,29 @@ onAuthStateChanged(auth, async (user) => {
         currentUser = user;
         loginOverlay.style.display = 'none';
 
-        // ⚠️ AUTO-FIX: Create profile if missing
-        await syncUserProfile(user, false);
+        // Auto-fix profile if missing OR if username is "Guest_" but we have a real name now
+        await syncUserProfile(user);
 
         loadGlobalChat();
         loadFriends();
     } else {
-        console.log("👤 [AUTH] Logged Out");
         currentUser = null;
         loginOverlay.style.display = 'flex';
     }
 });
 
-// Expose Manual Fix Tool
-window.forceSyncProfile = async function () {
-    if (!currentUser) {
-        alert("Please login first!");
-        return;
-    }
-    await syncUserProfile(currentUser, true);
-    loadFriends(); // Refresh UI
-};
-
-async function syncUserProfile(user, manual = false) {
+// Sync Profile: Ensures DB matches Auth
+async function syncUserProfile(user, manualUsername = null) {
     try {
         const userRef = doc(firestore, "users", user.uid);
         const snap = await getDoc(userRef);
 
+        const finalUsername = manualUsername || user.displayName || `User_${user.uid.slice(0, 5)}`;
+
         if (!snap.exists()) {
             console.log("🆕 [PROFILE] Creating New User Document...");
-            if (manual) alert("Creating missing profile...");
-
             await setDoc(userRef, {
-                username: user.displayName || `User_${user.uid.slice(0, 5)}`,
+                username: finalUsername,
                 email: user.email,
                 uid: user.uid,
                 avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
@@ -100,41 +89,46 @@ async function syncUserProfile(user, manual = false) {
                 status: 'online',
                 friends: []
             });
-
-            if (manual) alert("✅ Profile Created Successfully!");
         } else {
-            console.log("✅ [PROFILE] Exists.");
-            if (manual) alert("✅ Profile already exists! (Updated status)");
-            await updateDoc(userRef, { status: 'online' });
+            // Update status AND fix username if it was random before
+            const data = snap.data();
+            if (manualUsername || (user.displayName && data.username.startsWith("Guest_"))) {
+                await updateDoc(userRef, {
+                    status: 'online',
+                    username: finalUsername
+                });
+            } else {
+                await updateDoc(userRef, { status: 'online' });
+            }
         }
     } catch (e) {
         console.error("❌ [PROFILE] Error:", e);
-        if (manual) alert(`❌ Error: ${e.message}`);
     }
 }
 
-// Login Handler
-document.getElementById('loginSubmitBtn')?.addEventListener('click', async () => {
-    const email = document.getElementById('emailInput').value;
-    const pass = document.getElementById('passwordInput').value;
-    const errorDiv = document.getElementById('authError');
+// Manual Repair Tool
+window.forceSyncProfile = async function () {
+    if (!currentUser) return alert("Login first!");
+    await syncUserProfile(currentUser);
+    alert("Profile sync run. Check console for details.");
+    loadFriends();
+};
 
-    try {
-        await signInWithEmailAndPassword(auth, email, pass);
-    } catch (e) {
-        errorDiv.textContent = e.message;
-    }
-});
 
-// Signup Handler
+// ==========================================
+// 2. SIGNUP FIX (Prevent Random Usernames)
+// ==========================================
+
 document.getElementById('signupSubmitBtn')?.addEventListener('click', async () => {
-    const username = document.getElementById('signupUsername').value;
+    const username = document.getElementById('signupUsername').value.trim();
     const email = document.getElementById('signupEmail').value;
     const pass = document.getElementById('signupPassword').value;
     const errorDiv = document.getElementById('authError');
 
+    if (!username) return errorDiv.textContent = "Username required";
+
     try {
-        // Check username uniqueness
+        // Enforce Uniqueness
         const q = query(collection(firestore, "users"), where("username", "==", username));
         const querySnapshot = await getDocs(q);
         if (!querySnapshot.empty) {
@@ -142,9 +136,26 @@ document.getElementById('signupSubmitBtn')?.addEventListener('click', async () =
             return;
         }
 
+        // Create Auth
         const cred = await createUserWithEmailAndPassword(auth, email, pass);
+
+        // ⚡ CRITICAL: Set DisplayName IMMEDIATELY
         await updateProfile(cred.user, { displayName: username });
-        // onAuthStateChanged handles document creation
+
+        // ⚡ CRITICAL: Create DB Doc IMMEDIATELY (Avoid race condition)
+        await syncUserProfile(cred.user, username);
+
+    } catch (e) {
+        errorDiv.textContent = e.message;
+    }
+});
+
+document.getElementById('loginSubmitBtn')?.addEventListener('click', async () => {
+    const email = document.getElementById('emailInput').value;
+    const pass = document.getElementById('passwordInput').value;
+    const errorDiv = document.getElementById('authError');
+    try {
+        await signInWithEmailAndPassword(auth, email, pass);
     } catch (e) {
         errorDiv.textContent = e.message;
     }
@@ -152,7 +163,7 @@ document.getElementById('signupSubmitBtn')?.addEventListener('click', async () =
 
 
 // ==========================================
-// 2. CHAT SYSTEM
+// 3. GLOBAL CHAT & INTERACTION
 // ==========================================
 
 function sendGlobalMessage() {
@@ -177,8 +188,7 @@ document.getElementById('chatInput')?.addEventListener('keypress', (e) => {
 
 function loadGlobalChat() {
     const container = document.getElementById('chatMessages');
-    container.innerHTML = ''; // Fresh load
-
+    container.innerHTML = '';
     onChildAdded(globalChatRef, (snapshot) => {
         const msg = snapshot.val();
         if (msg) renderMessage(msg, container);
@@ -188,96 +198,132 @@ function loadGlobalChat() {
 function renderMessage(msg, container) {
     const div = document.createElement('div');
     const isMe = currentUser && String(msg.uid) === String(currentUser.uid);
-
     div.className = `chat-message ${isMe ? 'me' : 'other'}`;
     const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+    // ✨ Clickable Username for "Add Friend"
     div.innerHTML = `
         <div class="msg-header">
-            <span class="msg-user">${msg.user}</span>
+            <span class="msg-user" style="cursor:pointer; color:#a855f7; text-decoration:underline;" 
+                  onclick="window.handleGlobalUserClick('${msg.uid}', '${escapeHtml(msg.user)}')">
+                  ${msg.user}
+            </span>
             <span class="msg-time">${time}</span>
         </div>
         <div class="msg-text">${escapeHtml(msg.text)}</div>
     `;
-
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 }
 
+// Handle Click on Global Chat User
+window.handleGlobalUserClick = function (targetUid, targetName) {
+    if (!currentUser) return;
+    if (targetUid === currentUser.uid) return;
+
+    if (confirm(`Do you want to add ${targetName} as a friend?`)) {
+        addFriendByUid(targetUid, targetName);
+    }
+}
+
 
 // ==========================================
-// 3. FRIEND SYSTEM (ROBUST SEARCH)
+// 4. BI-DIRECTIONAL FRIEND SYSTEM
 // ==========================================
+
+// Helper: Add friend by UID (for Global Chat click)
+async function addFriendByUid(targetUid, targetName) {
+    try {
+        const userRef = doc(firestore, "users", targetUid);
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+            await executeAddFriend(snap.data());
+        }
+    } catch (e) {
+        alert("Error adding friend: " + e.message);
+    }
+}
 
 document.getElementById('addFriendBtn')?.addEventListener('click', async () => {
     const input = document.getElementById('addFriendInput');
     const targetUsername = input.value.trim();
-
-    console.log(`🔍 [FRIEND] Searching for: "${targetUsername}"`);
-
     if (!targetUsername || !currentUser) return;
 
+    console.log(`🔍 [FRIEND] Searching...`);
+
+    // Fuzzy Search Logic
     try {
-        const usersRef = collection(firestore, "users");
-
-        // 1. Try Exact Match
-        let snapshot = await getDocs(query(usersRef, where("username", "==", targetUsername)));
         let targetUser = null;
-
-        if (!snapshot.empty) {
-            targetUser = snapshot.docs[0].data();
-        } else {
-            // 2. Fallback: Scan all users (OK for debugging/small apps)
-            console.warn(`Scanning all users for "${targetUsername}"...`);
-            const allSnap = await getDocs(collection(firestore, "users"));
-            const match = allSnap.docs.find(d =>
-                d.data().username?.toLowerCase() === targetUsername.toLowerCase()
-            );
+        let usersRef = collection(firestore, "users");
+        // Exact
+        let snap = await getDocs(query(usersRef, where("username", "==", targetUsername)));
+        if (!snap.empty) targetUser = snap.docs[0].data();
+        else {
+            // Fuzzy
+            const allSnap = await getDocs(usersRef);
+            const match = allSnap.docs.find(d => d.data().username?.toLowerCase() === targetUsername.toLowerCase());
             if (match) targetUser = match.data();
         }
 
-        if (!targetUser) {
-            alert(`User "${targetUsername}" not found!`);
-            return;
-        }
+        if (!targetUser) return alert("User not found!");
 
-        if (targetUser.uid === currentUser.uid) {
-            alert("You cannot add yourself!");
-            return;
-        }
+        await executeAddFriend(targetUser);
+        input.value = '';
 
+    } catch (e) {
+        console.error("Add Friend Error", e);
+        alert("Error: " + e.message);
+    }
+});
+
+// ⚡ CORE: Bi-Directional Add
+async function executeAddFriend(targetUser) {
+    if (targetUser.uid === currentUser.uid) return alert("Can't add yourself.");
+
+    try {
+        // 1. Add Target to MY list
         const myRef = doc(firestore, "users", currentUser.uid);
         await updateDoc(myRef, {
             friends: arrayUnion({
                 uid: targetUser.uid,
                 username: targetUser.username,
-                avatar: targetUser.avatar
+                avatar: targetUser.avatar || ''
             })
         });
 
-        alert(`Added ${targetUser.username} to friends!`);
-        input.value = '';
+        // 2. Add ME to Target's list (So they see me too!)
+        const targetRef = doc(firestore, "users", targetUser.uid);
+        await updateDoc(targetRef, {
+            friends: arrayUnion({
+                uid: currentUser.uid,
+                username: currentUser.displayName || currentUser.username,
+                avatar: currentUser.photoURL || '' // Or default
+            })
+        });
+
+        console.log("✅ [FRIEND] Bi-directional add complete.");
+        alert(`You and ${targetUser.username} are now friends!`);
         loadFriends();
+
     } catch (e) {
-        console.error("❌ [FRIEND] Error:", e);
-        alert(`Error: ${e.message}`);
+        alert("Transaction failed: " + e.message);
     }
-});
+}
+
+
+// ==========================================
+// 5. LIST & PRIVATE CHAT
+// ==========================================
 
 async function loadFriends() {
     if (!currentUser) return;
-    const userRef = doc(firestore, "users", currentUser.uid);
-    const snap = await getDoc(userRef);
-    if (snap.exists()) {
-        const data = snap.data();
-        renderFriendList(data.friends || []);
-    }
+    const snap = await getDoc(doc(firestore, "users", currentUser.uid));
+    if (snap.exists()) renderFriendList(snap.data().friends || []);
 }
 
 function renderFriendList(friends) {
     const container = document.getElementById('friendListContainer');
     container.innerHTML = '';
-
     friends.forEach(friend => {
         const el = document.createElement('div');
         el.className = 'friend-item';
@@ -293,12 +339,7 @@ function renderFriendList(friends) {
     });
 }
 
-
-// ==========================================
-// 4. PRIVATE & UI HELPERS
-// ==========================================
-
-// Private Chat vars
+// ... Private Chat Logic (Same as before) ...
 let currentPrivateRef = null;
 const friendListArea = document.getElementById('friendListArea');
 const privateChatArea = document.getElementById('privateChatArea');
@@ -340,11 +381,10 @@ document.getElementById('privateSendBtn')?.addEventListener('click', () => {
     }
 });
 
-// Tabs & Toggles
+// UI Toggles
 window.switchTab = function (tab) {
     const tabs = document.querySelectorAll('.chat-tab');
     tabs.forEach(t => t.classList.remove('active'));
-
     if (tab === 'global') {
         document.getElementById('globalChatArea').style.display = 'flex';
         friendListArea.style.display = 'none';
