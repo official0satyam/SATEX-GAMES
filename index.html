@@ -196,6 +196,13 @@
         <button id="addFriendBtn" class="chat-send-btn" style="width: 32px; height: 32px;"><i
             class="fas fa-plus"></i></button>
       </div>
+
+      <!-- REPAIR PROFILE BUTTON -->
+      <div class="text-center py-2 border-b border-white/5">
+        <button onclick="forceSyncProfile()" class="text-[10px] text-purple-400 hover:text-white underline">
+          <i class="fas fa-tools"></i> Fix/Create Profile
+        </button>
+      </div>
       <div id="friendListContainer">
         <!-- Dynamic Friend List -->
       </div>
@@ -233,7 +240,8 @@
           <input type="email" id="emailInput" placeholder="Email" class="auth-input">
           <input type="password" id="passwordInput" placeholder="Password" class="auth-input">
           <button id="loginSubmitBtn" class="auth-btn">LOGIN</button>
-          <button id="guestLoginBtn" class="auth-btn secondary">PLAY AS GUEST</button>
+          <!-- Guest Login Removed for Fresh System -->
+          <!-- <button id="guestLoginBtn" class="auth-btn secondary">PLAY AS GUEST</button> -->
 
           <div class="text-center mt-3">
             <span class="auth-switch" onclick="toggleAuthMode('signup')">New here? Create Account</span>

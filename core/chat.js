@@ -3,7 +3,6 @@ import {
     getAuth,
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
-    signInAnonymously,
     onAuthStateChanged,
     updateProfile,
     signOut
@@ -13,8 +12,7 @@ import {
     ref,
     push,
     onChildAdded,
-    onValue,
-    serverTimestamp
+    onValue
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 import {
     getFirestore,
@@ -29,7 +27,7 @@ import {
     getDocs
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-// 🔍 [CONFIG] Updated with Database URL
+// [REMOVED GUEST HYBRID LOGIC FOR FRESH START]
 const firebaseConfig = {
     apiKey: "AIzaSyBQySK9KiYjLqH_blaw8JCogk4TvAz5jH0",
     authDomain: "satex-games.firebaseapp.com",
@@ -38,7 +36,6 @@ const firebaseConfig = {
     messagingSenderId: "1021871212512",
     appId: "1:1021871212512:web:ea54d97198a06b81550d85",
     measurementId: "G-968393H9W2",
-    // ⬇️ CRITICAL: Updated via Console Feedback
     databaseURL: "https://satex-games-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
 
@@ -49,73 +46,53 @@ const db = getDatabase(app);
 const firestore = getFirestore(app);
 
 const globalChatRef = ref(db, 'global_chat');
-const connectedRef = ref(db, ".info/connected");
-
-// 🔍 [DEBUG] Monitor Database Connection
-onValue(connectedRef, (snap) => {
-    if (snap.val() === true) {
-        console.log("✅ [FIREBASE] Connected to Realtime Database!");
-    } else {
-        console.log("❌ [FIREBASE] Disconnected. Check Console for 404/Permission errors.");
-    }
-});
-
-// UI Elements
-const sidebar = document.getElementById('chatSidebar');
-const loginOverlay = document.getElementById('chatLoginOverlay');
-const floatingBtn = document.getElementById('chatFloatingBtn');
-const globalChatArea = document.getElementById('globalChatArea');
-const friendListArea = document.getElementById('friendListArea');
-const privateChatArea = document.getElementById('privateChatArea');
-
-// State
 let currentUser = null;
-let currentTab = 'global';
-let currentPrivateChatUser = null;
 
 // ==========================================
-// AUTHENTICATION LOGIC
+// 1. FRESH AUTH LOGIC
 // ==========================================
-
-// Check Local Guest Session First
-const localGuest = localStorage.getItem('chat_guest_session');
-
-if (localGuest && !auth.currentUser) {
-    console.log("👤 [AUTH] Restoring Local Guest Session");
-    currentUser = JSON.parse(localGuest);
-    loginOverlay.style.display = 'none';
-    loadGlobalChat();
-}
 
 onAuthStateChanged(auth, async (user) => {
+    const loginOverlay = document.getElementById('chatLoginOverlay');
+
     if (user) {
-        console.log("👤 [AUTH] User Logged In:", user.uid);
+        console.log("👤 [AUTH] Logged In:", user.uid);
         currentUser = user;
-        // Clear local guest if real user logs in
-        localStorage.removeItem('chat_guest_session');
         loginOverlay.style.display = 'none';
 
-        syncUserProfile(user);
+        // ⚠️ AUTO-FIX: Create profile if missing
+        await syncUserProfile(user, false);
+
         loadGlobalChat();
         loadFriends();
     } else {
-        // Only show overlay if no local guest
-        if (!localStorage.getItem('chat_guest_session')) {
-            console.log("👤 [AUTH] No User - Showing Login");
-            currentUser = null;
-            loginOverlay.style.display = 'flex';
-        }
+        console.log("👤 [AUTH] Logged Out");
+        currentUser = null;
+        loginOverlay.style.display = 'flex';
     }
 });
 
-async function syncUserProfile(user) {
+// Expose Manual Fix Tool
+window.forceSyncProfile = async function () {
+    if (!currentUser) {
+        alert("Please login first!");
+        return;
+    }
+    await syncUserProfile(currentUser, true);
+    loadFriends(); // Refresh UI
+};
+
+async function syncUserProfile(user, manual = false) {
     try {
         const userRef = doc(firestore, "users", user.uid);
         const snap = await getDoc(userRef);
 
         if (!snap.exists()) {
+            console.log("🆕 [PROFILE] Creating New User Document...");
+            if (manual) alert("Creating missing profile...");
+
             await setDoc(userRef, {
-                username: user.displayName || `Guest_${user.uid.slice(0, 5)}`,
+                username: user.displayName || `User_${user.uid.slice(0, 5)}`,
                 email: user.email,
                 uid: user.uid,
                 avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
@@ -123,15 +100,20 @@ async function syncUserProfile(user) {
                 status: 'online',
                 friends: []
             });
+
+            if (manual) alert("✅ Profile Created Successfully!");
         } else {
+            console.log("✅ [PROFILE] Exists.");
+            if (manual) alert("✅ Profile already exists! (Updated status)");
             await updateDoc(userRef, { status: 'online' });
         }
     } catch (e) {
-        console.error("❌ [PROFILE] Sync User Error:", e);
+        console.error("❌ [PROFILE] Error:", e);
+        if (manual) alert(`❌ Error: ${e.message}`);
     }
 }
 
-// Login
+// Login Handler
 document.getElementById('loginSubmitBtn')?.addEventListener('click', async () => {
     const email = document.getElementById('emailInput').value;
     const pass = document.getElementById('passwordInput').value;
@@ -144,7 +126,7 @@ document.getElementById('loginSubmitBtn')?.addEventListener('click', async () =>
     }
 });
 
-// Signup
+// Signup Handler
 document.getElementById('signupSubmitBtn')?.addEventListener('click', async () => {
     const username = document.getElementById('signupUsername').value;
     const email = document.getElementById('signupEmail').value;
@@ -152,6 +134,7 @@ document.getElementById('signupSubmitBtn')?.addEventListener('click', async () =
     const errorDiv = document.getElementById('authError');
 
     try {
+        // Check username uniqueness
         const q = query(collection(firestore, "users"), where("username", "==", username));
         const querySnapshot = await getDocs(q);
         if (!querySnapshot.empty) {
@@ -161,82 +144,49 @@ document.getElementById('signupSubmitBtn')?.addEventListener('click', async () =
 
         const cred = await createUserWithEmailAndPassword(auth, email, pass);
         await updateProfile(cred.user, { displayName: username });
+        // onAuthStateChanged handles document creation
     } catch (e) {
         errorDiv.textContent = e.message;
     }
 });
 
-// Guest Mode (Hybrid: Local Mock to avoid Firebase Auth Errors)
-document.getElementById('guestLoginBtn')?.addEventListener('click', async () => {
-    console.log("👤 [AUTH] Starting Guest Mode...");
-    const randomId = Math.floor(Math.random() * 100000);
-    const guestUser = {
-        uid: `guest_${randomId}`,
-        displayName: `Guest_${randomId}`,
-        email: null,
-        isGuest: true
-    };
-
-    currentUser = guestUser;
-    localStorage.setItem('chat_guest_session', JSON.stringify(guestUser));
-    loginOverlay.style.display = 'none';
-    loadGlobalChat();
-});
 
 // ==========================================
-// CHAT LOGIC
+// 2. CHAT SYSTEM
 // ==========================================
-
-// Send Global Message
-document.getElementById('sendBtn')?.addEventListener('click', sendGlobalMessage);
-document.getElementById('chatInput')?.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendGlobalMessage();
-});
 
 function sendGlobalMessage() {
     const input = document.getElementById('chatInput');
     const text = input.value.trim();
 
     if (text && currentUser) {
-        console.log("📤 [CHAT] Sending message:", text);
         push(globalChatRef, {
-            user: currentUser.displayName || 'Guest',
+            user: currentUser.displayName || 'Unknown',
             uid: currentUser.uid,
             text: text,
             timestamp: Date.now()
-        }).then(() => {
-            console.log("✅ [CHAT] Message Sent!");
-        }).catch((e) => {
-            console.error("❌ [CHAT] Send Failed:", e);
-            alert("Connection Error: Check Console.");
         });
         input.value = '';
-    } else {
-        console.warn("⚠️ [CHAT] Cannot send: No text or No user");
     }
 }
 
+document.getElementById('sendBtn')?.addEventListener('click', sendGlobalMessage);
+document.getElementById('chatInput')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendGlobalMessage();
+});
+
 function loadGlobalChat() {
     const container = document.getElementById('chatMessages');
-    console.log("🔄 [CHAT] Loading Chat Listener...");
-
-    // In a real app, remove old listeners first.
-    container.innerHTML = '';
+    container.innerHTML = ''; // Fresh load
 
     onChildAdded(globalChatRef, (snapshot) => {
         const msg = snapshot.val();
-        if (msg) {
-            // console.log("📩 [CHAT] Received:", msg);
-            renderMessage(msg, container);
-        }
-    }, (error) => {
-        console.error("❌ [CHAT] Listener Error:", error);
+        if (msg) renderMessage(msg, container);
     });
 }
 
 function renderMessage(msg, container) {
     const div = document.createElement('div');
-    // Ensure accurate string comparison for UIDs
     const isMe = currentUser && String(msg.uid) === String(currentUser.uid);
 
     div.className = `chat-message ${isMe ? 'me' : 'other'}`;
@@ -254,8 +204,9 @@ function renderMessage(msg, container) {
     container.scrollTop = container.scrollHeight;
 }
 
+
 // ==========================================
-// FRIEND SYSTEM
+// 3. FRIEND SYSTEM (ROBUST SEARCH)
 // ==========================================
 
 document.getElementById('addFriendBtn')?.addEventListener('click', async () => {
@@ -263,11 +214,6 @@ document.getElementById('addFriendBtn')?.addEventListener('click', async () => {
     const targetUsername = input.value.trim();
 
     console.log(`🔍 [FRIEND] Searching for: "${targetUsername}"`);
-
-    if (currentUser?.isGuest) {
-        alert("Please login to use Friend features!");
-        return;
-    }
 
     if (!targetUsername || !currentUser) return;
 
@@ -281,27 +227,19 @@ document.getElementById('addFriendBtn')?.addEventListener('click', async () => {
         if (!snapshot.empty) {
             targetUser = snapshot.docs[0].data();
         } else {
-            console.warn(`⚠️ [FRIEND] Exact match failed. Scanning all users for "${targetUsername}"...`);
             // 2. Fallback: Scan all users (OK for debugging/small apps)
-            try {
-                const allSnap = await getDocs(collection(firestore, "users"));
-                const match = allSnap.docs.find(d =>
-                    d.data().username?.toLowerCase() === targetUsername.toLowerCase()
-                );
-                if (match) {
-                    targetUser = match.data();
-                    console.log(`✅ [FRIEND] Found fuzzy match: ${targetUser.username}`);
-                }
-            } catch (err) {
-                console.error("Error scanning users:", err);
-            }
+            console.warn(`Scanning all users for "${targetUsername}"...`);
+            const allSnap = await getDocs(collection(firestore, "users"));
+            const match = allSnap.docs.find(d =>
+                d.data().username?.toLowerCase() === targetUsername.toLowerCase()
+            );
+            if (match) targetUser = match.data();
         }
 
         if (!targetUser) {
             alert(`User "${targetUsername}" not found!`);
             return;
         }
-        console.log("✅ [FRIEND] Found user:", targetUser);
 
         if (targetUser.uid === currentUser.uid) {
             alert("You cannot add yourself!");
@@ -317,30 +255,22 @@ document.getElementById('addFriendBtn')?.addEventListener('click', async () => {
             })
         });
 
-        console.log("✅ [FRIEND] Friend added successfully!");
         alert(`Added ${targetUser.username} to friends!`);
         input.value = '';
         loadFriends();
     } catch (e) {
         console.error("❌ [FRIEND] Error:", e);
-        alert("Error adding friend. Check console.");
+        alert(`Error: ${e.message}`);
     }
 });
 
 async function loadFriends() {
-    if (!currentUser || currentUser.isGuest) return;
-
-    try {
-        const userRef = doc(firestore, "users", currentUser.uid);
-        const snap = await getDoc(userRef);
-
-        if (snap.exists()) {
-            const data = snap.data();
-            const friends = data.friends || [];
-            renderFriendList(friends);
-        }
-    } catch (e) {
-        console.error("❌ [FRIEND] Load Error:", e);
+    if (!currentUser) return;
+    const userRef = doc(firestore, "users", currentUser.uid);
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+        const data = snap.data();
+        renderFriendList(data.friends || []);
     }
 }
 
@@ -363,29 +293,21 @@ function renderFriendList(friends) {
     });
 }
 
+
 // ==========================================
-// PRIVATE MESSAGES
+// 4. PRIVATE & UI HELPERS
 // ==========================================
+
+// Private Chat vars
+let currentPrivateRef = null;
+const friendListArea = document.getElementById('friendListArea');
+const privateChatArea = document.getElementById('privateChatArea');
 
 window.openPrivateChat = function (targetUid, targetUsername) {
-    currentPrivateChatUser = { uid: targetUid, username: targetUsername };
-
     friendListArea.style.display = 'none';
     privateChatArea.style.display = 'flex';
     document.getElementById('privateChatUser').textContent = `Chat with ${targetUsername}`;
 
-    loadPrivateMessages(targetUid);
-}
-
-window.closePrivateChat = function () {
-    privateChatArea.style.display = 'none';
-    friendListArea.style.display = 'flex';
-    currentPrivateChatUser = null;
-}
-
-let currentPrivateRef = null;
-
-function loadPrivateMessages(targetUid) {
     const container = document.getElementById('privateMessages');
     container.innerHTML = '';
 
@@ -398,10 +320,15 @@ function loadPrivateMessages(targetUid) {
     });
 }
 
+window.closePrivateChat = function () {
+    privateChatArea.style.display = 'none';
+    friendListArea.style.display = 'flex';
+    currentPrivateRef = null;
+}
+
 document.getElementById('privateSendBtn')?.addEventListener('click', () => {
     const input = document.getElementById('privateInput');
     const text = input.value.trim();
-
     if (text && currentPrivateRef && currentUser) {
         push(currentPrivateRef, {
             user: currentUser.displayName,
@@ -413,22 +340,18 @@ document.getElementById('privateSendBtn')?.addEventListener('click', () => {
     }
 });
 
-
-// ==========================================
-// UI HELPERS
-// ==========================================
-
+// Tabs & Toggles
 window.switchTab = function (tab) {
     const tabs = document.querySelectorAll('.chat-tab');
     tabs.forEach(t => t.classList.remove('active'));
 
     if (tab === 'global') {
-        globalChatArea.style.display = 'flex';
+        document.getElementById('globalChatArea').style.display = 'flex';
         friendListArea.style.display = 'none';
         privateChatArea.style.display = 'none';
         tabs[0].classList.add('active');
     } else {
-        globalChatArea.style.display = 'none';
+        document.getElementById('globalChatArea').style.display = 'none';
         friendListArea.style.display = 'flex';
         tabs[1].classList.add('active');
         loadFriends();
@@ -436,26 +359,19 @@ window.switchTab = function (tab) {
 }
 
 window.toggleAuthMode = function (mode) {
-    const loginForm = document.getElementById('loginForm');
-    const signupForm = document.getElementById('signupForm');
-
     if (mode === 'signup') {
-        loginForm.style.display = 'none';
-        signupForm.style.display = 'block';
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('signupForm').style.display = 'block';
     } else {
-        loginForm.style.display = 'block';
-        signupForm.style.display = 'none';
+        document.getElementById('loginForm').style.display = 'block';
+        document.getElementById('signupForm').style.display = 'none';
     }
 }
 
 window.toggleChat = function () {
-    sidebar.classList.toggle('collapsed');
-
-    if (sidebar.classList.contains('collapsed')) {
-        floatingBtn.style.display = 'flex';
-    } else {
-        floatingBtn.style.display = 'none';
-    }
+    const sb = document.getElementById('chatSidebar');
+    sb.classList.toggle('collapsed');
+    document.getElementById('chatFloatingBtn').style.display = sb.classList.contains('collapsed') ? 'flex' : 'none';
 }
 
 function escapeHtml(text) {
