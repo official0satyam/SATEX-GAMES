@@ -48,7 +48,6 @@
 @media (max-width: 768px) {
     .bottom-nav {
         display: flex;
-        /* Replaces the floating button effectively */
     }
 
     #chatFloatingBtn {
@@ -60,7 +59,6 @@
 /* Content Views System */
 .view-section {
     display: none;
-    /* Hidden by default */
     animation: fadeIn 0.3s ease-out;
 }
 
@@ -102,14 +100,12 @@
     position: absolute;
     bottom: -50px;
     left: 40px;
-    /* Desktop positioning */
 }
 
 @media (max-width: 768px) {
     .profile-header {
         border-radius: 0;
         margin: -20px -20px 60px -20px;
-        /* Full width mobile */
     }
 
     .profile-avatar-container {
@@ -151,44 +147,12 @@
     box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
 }
 
-.stat-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 20px;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    transition: all 0.3s;
-}
-
-.stat-card:hover {
-    background: rgba(255, 255, 255, 0.05);
-    transform: translateY(-5px);
-    border-color: var(--accent);
-}
-
-.fav-game-card {
-    background: linear-gradient(to right, rgba(188, 19, 254, 0.1), transparent);
-    border: 1px solid var(--accent);
-    border-radius: 24px;
-    padding: 24px;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    gap: 24px;
-}
-
-/* Chat Section (Full Page) */
+/* Chat Section */
 .chat-layout {
     display: grid;
     grid-template-columns: 280px 1fr;
     gap: 20px;
     height: calc(100vh - 140px);
-    /* Adjust based on header */
     background: rgba(255, 255, 255, 0.02);
     border-radius: 24px;
     border: 1px solid rgba(255, 255, 255, 0.05);
@@ -234,23 +198,92 @@
     border-bottom-left-radius: 4px;
 }
 
+/* Auth & Login Overlay Styles */
+.chat-login-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(10px);
+    z-index: 6000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.chat-login-overlay:not(.hidden) {
+    display: flex;
+}
+
+.auth-form {
+    background: #13131a;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 2rem;
+    border-radius: 24px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 0 50px rgba(124, 58, 237, 0.2);
+}
+
+.auth-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    padding: 12px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.auth-input:focus {
+    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.auth-btn {
+    width: 100%;
+    background: var(--accent);
+    color: white;
+    padding: 12px;
+    border-radius: 12px;
+    font-weight: 800;
+    margin-top: 8px;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.auth-btn:hover {
+    filter: brightness(1.2);
+    transform: translateY(-2px);
+}
+
+.auth-switch {
+    font-size: 0.8rem;
+    color: #888;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.auth-switch:hover {
+    color: white;
+}
+
 /* Mobile Specifics for Chat */
 @media (max-width: 768px) {
     .chat-layout {
         display: flex;
         flex-direction: column;
         height: 100dvh;
-        /* Dynamic Height Fix */
         border: none;
         border-radius: 0;
         background: transparent;
         margin: -20px;
-        /* Counteract main padding */
     }
 
     .chat-list-panel {
         display: none;
-        /* Hide list when in view mode, or handle differently */
     }
 
     .mobile-chat-tabs {
@@ -265,7 +298,6 @@
 
     .chat-input-container {
         position: fixed;
-        /* Changed from sticky to fixed to sit above nav */
         bottom: calc(60px + env(safe-area-inset-bottom));
         left: 0;
         right: 0;
@@ -278,6 +310,230 @@
 
     .chat-messages-area {
         padding-bottom: 140px !important;
-        /* Make space for input + nav */
     }
+}
+
+/* Gamer Card Modal */
+.gamer-card-overlay {
+    position: fixed;
+    inset: 0;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(12px);
+    z-index: 7000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.gamer-card-overlay.active {
+    display: flex;
+}
+
+.gamer-card {
+    background: #13131a;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    width: 90%;
+    max-width: 360px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 0 50px rgba(124, 58, 237, 0.3);
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.card-banner {
+    height: 120px;
+    background: linear-gradient(45deg, #1a1a2e, #4c1d95);
+    position: relative;
+}
+
+.card-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    border: 4px solid #13131a;
+    position: absolute;
+    bottom: -40px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #000;
+}
+
+.card-content {
+    padding: 50px 20px 20px;
+    text-align: center;
+}
+
+.card-username {
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: white;
+    margin-bottom: 4px;
+}
+
+.card-status {
+    font-size: 0.8rem;
+    color: #4ade80;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    background: #4ade80;
+    border-radius: 50%;
+    box-shadow: 0 0 10px #4ade80;
+}
+
+.card-stats {
+    display: flex;
+    justify-content: space-around;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 12px 0;
+    margin-bottom: 20px;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.stat-val {
+    font-size: 1.1rem;
+    font-weight: 900;
+    color: white;
+}
+
+.stat-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: #888;
+    font-weight: 700;
+}
+
+.card-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-primary {
+    flex: 1;
+    background: var(--accent);
+    color: white;
+    padding: 10px;
+    border-radius: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+}
+
+.btn-secondary {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    padding: 10px;
+    border-radius: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Social Feed */
+.social-feed {
+    padding: 0 20px 80px;
+}
+
+.feed-item {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 16px;
+    display: flex;
+    gap: 12px;
+}
+
+.feed-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: #000;
+}
+
+.feed-content {
+    flex: 1;
+}
+
+.feed-header {
+    font-size: 0.9rem;
+    color: #ccc;
+    margin-bottom: 4px;
+}
+
+.feed-header b {
+    color: white;
+}
+
+.feed-meta {
+    font-size: 0.75rem;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.feed-card {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 12px;
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.feed-game-thumb {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    object-fit: cover;
+}
+
+.feed-btn-join {
+    margin-left: auto;
+    background: rgba(139, 92, 246, 0.2);
+    color: #a78bfa;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.feed-btn-join:hover {
+    background: var(--accent);
+    color: white;
 }

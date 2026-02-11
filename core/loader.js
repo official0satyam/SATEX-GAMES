@@ -42,6 +42,22 @@ async function loadGames() {
         }
     }
 
+    // 4. Cache & Populate Trending
+    if (window.Services && window.Services.state) {
+        window.Services.state.gameLibrary = allGames;
+
+        // Populate Chat Trending (random 5 for now)
+        const trendingContainer = document.getElementById('trending-games-mini');
+        if (trendingContainer) {
+            trendingContainer.innerHTML = allGames.sort(() => 0.5 - Math.random()).slice(0, 5).map(g => `
+                <div class="flex-shrink-0 w-16 cursor-pointer group" onclick="playGame('${g.url}', '${g.title}')">
+                    <img src="${g.thumbnail}" class="w-16 h-16 rounded-xl object-cover border border-white/10 group-hover:border-purple-500 transition-all">
+                    <div class="text-[10px] text-gray-400 truncate mt-1 text-center group-hover:text-white">${g.title}</div>
+                </div>
+            `).join('');
+        }
+    }
+
     renderGames(allGames);
     renderSuggestions(allGames);
     renderTagsCloud();

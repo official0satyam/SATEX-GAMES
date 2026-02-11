@@ -122,6 +122,10 @@
       <span class="absolute top-2 right-8 w-2 h-2 bg-red-500 rounded-full hidden" id="mobileChatDot"></span>
       <span>Chat</span>
     </button>
+    <button class="bottom-nav-item" onclick="switchView('social')">
+      <i class="fas fa-bolt"></i>
+      <span>Feed</span>
+    </button>
     <button class="bottom-nav-item" onclick="switchView('profile')">
       <i class="fas fa-user"></i>
       <span>Profile</span>
@@ -267,12 +271,11 @@
         <h3 class="font-black text-xl mb-6 text-white text-center">PLAYER LOGIN</h3>
 
         <!-- Login Form -->
+        <!-- Login Form -->
         <div id="loginForm">
           <input type="email" id="emailInput" placeholder="Email" class="auth-input">
           <input type="password" id="passwordInput" placeholder="Password" class="auth-input">
-          <button id="loginSubmitBtn" class="auth-btn">LOGIN</button>
-          <!-- Guest Login Removed for Fresh System -->
-          <!-- <button id="guestLoginBtn" class="auth-btn secondary">PLAY AS GUEST</button> -->
+          <button onclick="window.handleLogin()" class="auth-btn">LOGIN</button>
 
           <div class="text-center mt-3">
             <span class="auth-switch" onclick="toggleAuthMode('signup')">New here? Create Account</span>
@@ -280,11 +283,11 @@
         </div>
 
         <!-- Signup Form -->
-        <div id="signupForm" style="display: none;">
+        <div id="signupForm" class="hidden">
           <input type="text" id="signupUsername" placeholder="Choose Username" class="auth-input">
           <input type="email" id="signupEmail" placeholder="Email" class="auth-input">
           <input type="password" id="signupPassword" placeholder="Password" class="auth-input">
-          <button id="signupSubmitBtn" class="auth-btn">CREATE ACCOUNT</button>
+          <button onclick="window.handleSignup()" class="auth-btn">CREATE ACCOUNT</button>
 
           <div class="text-center mt-3">
             <span class="auth-switch" onclick="toggleAuthMode('login')">Already have an account? Login</span>
