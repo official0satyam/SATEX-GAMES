@@ -1,66 +1,101 @@
 
 /* -------------------------------------------------------------------------- */
-/*                           UI MANAGER & DATA INTEGRATION                    */
+/*                           UI MANAGER (STRICT FIX)                          */
 /* -------------------------------------------------------------------------- */
-// Depends on window.Services from core/services.js
+// STRICT FIX: Ensure Auth unlocks UI immediately and Views switch cleanly.
 
-document.addEventListener('DOMContentLoaded', () => {
-    // 1. Check Deep Linking for "Join Game"
+window.currentUserData = null; // Global State
+
+document.addEventListener('DOMContentLoaded', async () => {
+    console.log("🚀 [UI] Initializing...");
+
+    // 1. Force Load Game Data First
+    if (window.loadGames) await window.loadGames();
+
+    // 2. Check URL for View
     const params = new URLSearchParams(window.location.search);
+    const view = params.get('view') || 'home';
     const joinGameId = params.get('game');
+
+    // 3. Handle Deep Linking (Game)
     if (joinGameId) {
-        // Find game in library and launch
         setTimeout(() => {
-            const game = window.allGames?.find(g => g.id === joinGameId); // Assuming window.allGames populated by loader
+            const game = window.allGames?.find(g => g.id === joinGameId);
             if (game) playGame(game.url, game.title);
-        }, 1000); // Small delay for loader
+        }, 500);
     }
 
-    // 2. Auth State Listener
+    // 4. Initial View Render
+    _renderView(view, false);
+
+    // 5. Auth State Listener (The "Key" to the Gate)
     window.addEventListener('authStateChanged', (e) => {
         const user = e.detail.user;
+        console.log("🔐 [UI] Auth State Changed:", user ? "LOGGED IN" : "GUEST");
+
         if (user) {
-            document.querySelectorAll('.auth-btn').forEach(b => b.classList.add('hidden')); // hide login btns
-            // Profile & Chat unlock
-        } else {
-            // Show Login
+            // UNLOCK GATES
+            document.querySelectorAll('.auth-btn').forEach(b => b.classList.add('hidden'));
+            // If on profile/chat, re-render to show content instead of lock screen
+            const currentView = new URLSearchParams(window.location.search).get('view');
+            if (currentView === 'profile' || currentView === 'chat' || currentView === 'social') {
+                _renderView(currentView, false);
+            }
         }
     });
 
-    // 3. Profile Updates
+    // 6. Profile Data Updates
     window.addEventListener('profileUpdated', (e) => {
-        currentUserData = e.detail;
-        if (new URLSearchParams(window.location.search).get('view') === 'profile') {
+        window.currentUserData = e.detail; // Sync Global
+        console.log("👤 [UI] Profile Data Synced", window.currentUserData?.username);
+        // Force re-render of profile if active
+        if (document.getElementById('view-profile').classList.contains('active')) {
             renderProfile();
         }
     });
 
-    // 4. Global Chat Updates
+    // 7. Global Chat Updates
     window.addEventListener('globalChatUpdated', (e) => {
         const msgs = e.detail;
         const container = document.getElementById('chat-messages-area');
-        if (container && activeChatTab === 'global') {
+        if (container && window.activeChatTab === 'global') {
             container.innerHTML = '';
             msgs.forEach(msg => renderMessage(msg, container));
             container.scrollTop = container.scrollHeight;
         }
     });
+
+    // 8. Feed Updates
+    window.addEventListener('feedUpdated', (e) => {
+        // Redraw feed if social view is active
+        if (document.getElementById('view-chat').classList.contains('active')) {
+            renderSocialFeed(true); // pass update flag
+        }
+    });
+
+    // 9. Close Overlay on Outside Click
+    const overlay = document.getElementById('chatLoginOverlay');
+    if (overlay) {
+        overlay.onclick = (e) => {
+            if (e.target === overlay) overlay.classList.remove('active');
+        }
+    }
 });
 
 
 /* -------------------------------------------------------------------------- */
 /*                           VIEW NAVIGATION                                  */
 /* -------------------------------------------------------------------------- */
-let currentUserData = null;
+window.activeChatTab = 'global';
 
 window.addEventListener('popstate', (e) => {
     const view = e.state ? e.state.view : 'home';
     _renderView(view, false);
 });
 
-function switchView(viewName) {
+window.switchView = function (viewName) {
     const currentParams = new URLSearchParams(window.location.search);
-    if (viewName === currentParams.get('view')) viewName = 'home';
+    if (viewName === currentParams.get('view')) return; // No-op if same
 
     const url = viewName === 'home' ? window.location.pathname : `?view=${viewName}`;
     history.pushState({ view: viewName }, '', url);
@@ -68,20 +103,36 @@ function switchView(viewName) {
 }
 
 function _renderView(viewName, isPush) {
+    console.log("📺 [VIEW] Switching to:", viewName);
+
+    // Hide All Sections
     document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
 
-    // Bottom Nav Active State
+    // Update Sidebar/Nav Active State
+    document.querySelectorAll('.sidebar-item').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.bottom-nav-item').forEach(btn => btn.classList.remove('active'));
+
+    // Highlight Buttons
+    const sideBtn = document.querySelector(`.sidebar-item[data-view="${viewName}"]`);
+    if (sideBtn) sideBtn.classList.add('active');
+
+    // Bottom Nav (match onclick)
     document.querySelectorAll('.bottom-nav-item').forEach(btn => {
-        if (btn.onclick.toString().includes(viewName)) btn.classList.add('active');
-        else btn.classList.remove('active');
+        if (btn.onclick && btn.onclick.toString().includes(viewName)) btn.classList.add('active');
     });
 
+    // Show Target View
     const target = document.getElementById(`view-${viewName}`);
     if (target) {
         target.classList.add('active');
+
+        // View Specific Logic
         if (viewName === 'profile') renderProfile();
         if (viewName === 'chat') renderChatInterface();
-        if (viewName === 'social') renderSocialFeed(); // New Social View
+        if (viewName === 'social') renderSocialFeed();
+    } else {
+        // Fallback to home if view doesn't exist
+        document.getElementById('view-home').classList.add('active');
     }
     window.scrollTo(0, 0);
 }
@@ -93,7 +144,8 @@ function renderProfile() {
     const container = document.getElementById('view-profile');
     if (!container) return;
 
-    if (!currentUserData) {
+    // STRICT LOCK: Check Global State
+    if (!window.Services?.state?.currentUser) {
         container.innerHTML = `
             <div class="flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
                 <i class="fas fa-lock text-6xl text-gray-700 mb-6"></i>
@@ -107,6 +159,8 @@ function renderProfile() {
         return;
     }
 
+    const userData = window.currentUserData || { username: 'Loading...', level: 1, xp: 0 };
+
     container.innerHTML = `
         <div class="profile-header group relative">
             <img src="https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop" class="banner-img">
@@ -115,27 +169,27 @@ function renderProfile() {
             </button>
             <div class="profile-avatar-container">
                 <div class="avatar-ring">
-                    <img src="${currentUserData.avatar}" class="avatar-img">
+                    <img src="${userData.avatar || 'assets/icons/logo.jpg'}" class="avatar-img">
                 </div>
-                <div class="level-badge-large">LVL ${currentUserData.level || 1}</div>
+                <div class="level-badge-large">LVL ${userData.level || 1}</div>
             </div>
         </div>
 
         <div class="px-4 md:px-0 mt-16 md:mt-0">
-            <h2 class="text-3xl font-black text-white tracking-tight">${currentUserData.username}</h2>
+            <h2 class="text-3xl font-black text-white tracking-tight">${userData.username}</h2>
             <div class="flex gap-4 mt-2 mb-6 text-sm text-gray-400">
-                <span><b>${currentUserData.followers_count || 0}</b> Followers</span>
-                <span><b>${currentUserData.following_games?.length || 0}</b> Following</span>
+                <span><b>${userData.followers_count || 0}</b> Followers</span>
+                <span><b>${userData.following_games?.length || 0}</b> Following</span>
             </div>
 
             <!-- Gamer Card Stats -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 <div class="stat-card">
-                   <div class="text-2xl font-black text-white">${currentUserData.xp || 0}</div>
+                   <div class="text-2xl font-black text-white">${userData.xp || 0}</div>
                    <div class="text-xs font-bold text-gray-500 uppercase">Total XP</div>
                 </div>
                  <div class="stat-card">
-                   <div class="text-2xl font-black text-white">${currentUserData.games_played || 0}</div>
+                   <div class="text-2xl font-black text-white">${userData.games_played || 0}</div>
                    <div class="text-xs font-bold text-gray-500 uppercase">Games Played</div>
                 </div>
             </div>
@@ -146,11 +200,12 @@ function renderProfile() {
 /* -------------------------------------------------------------------------- */
 /*                           CHAT & SOCIAL RENDERER                           */
 /* -------------------------------------------------------------------------- */
-let activeChatTab = 'global';
-
 function renderChatInterface() {
-    const container = document.getElementById('view-chat');
-    if (container.querySelector('.chat-layout')) return; // already rendered
+    const container = document.getElementById('view-chat'); // Reusing container
+    const isChatMode = !new URLSearchParams(window.location.search).get('view')?.includes('social');
+
+    // Prevent re-rendering if already there (unless switching)
+    if (isChatMode && container.querySelector('.chat-input-container')) return;
 
     container.innerHTML = `
         <div class="chat-layout">
@@ -158,8 +213,8 @@ function renderChatInterface() {
             <div class="chat-list-panel">
                 <div class="p-4 border-b border-white/5">
                      <div class="flex bg-black/20 p-1 rounded-xl">
-                        <button onclick="switchChatTab('global')" id="tab-global" class="flex-1 py-2 rounded-lg text-xs font-bold uppercase bg-purple-600 text-white shadow-lg">Global</button>
-                        <button onclick="switchChatTab('dms')" id="tab-dms" class="flex-1 py-2 rounded-lg text-xs font-bold uppercase text-gray-500 hover:bg-white/5">DMs</button>
+                        <button onclick="switchChatTab('global')" id="tab-global" class="flex-1 py-2 rounded-lg text-xs font-bold uppercase ${window.activeChatTab === 'global' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500 hover:bg-white/5'}">Global</button>
+                        <button onclick="switchChatTab('dms')" id="tab-dms" class="flex-1 py-2 rounded-lg text-xs font-bold uppercase ${window.activeChatTab === 'dms' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500 hover:bg-white/5'}">DMs</button>
                     </div>
                 </div>
                 <!-- Trending Games Hook -->
@@ -185,7 +240,7 @@ function renderChatInterface() {
                 <div class="chat-input-container border-t border-white/5">
                     <div class="flex gap-2">
                         <input type="text" id="chatMsgInput" placeholder="Message..." class="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500/50">
-                        <button onclick="sendMsg()" class="w-12 h-12 bg-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg">
+                        <button onclick="window.sendMsg()" class="w-12 h-12 bg-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg">
                             <i class="fas fa-paper-plane"></i>
                         </button>
                     </div>
@@ -195,67 +250,16 @@ function renderChatInterface() {
     `;
 
     // Populate Trending
-    const games = Services.state.gameLibrary || [];
-    if (games.length > 0) {
-        const trendingContainer = document.getElementById('trending-games-mini');
-        if (trendingContainer) {
-            trendingContainer.innerHTML = [...games].sort(() => 0.5 - Math.random()).slice(0, 5).map(g => `
-                <div class="flex-shrink-0 w-16 cursor-pointer group" onclick="playGame('${g.url}', '${g.title}')">
-                    <img src="${g.thumbnail}" class="w-16 h-16 rounded-xl object-cover border border-white/10 group-hover:border-purple-500 transition-all">
-                    <div class="text-[10px] text-gray-400 truncate mt-1 text-center group-hover:text-white">${g.title}</div>
-                </div>
-            `).join('');
-        }
-    }
+    populateTrending();
 
     // Initial Load
     Services.chat.listenToGlobalChat();
 }
 
-function switchChatTab(tab) {
-    activeChatTab = tab;
-    // UI toggle logic...
-    const container = document.getElementById('chat-messages-area');
-    container.innerHTML = '';
+function renderSocialFeed(isUpdate = false) {
+    const container = document.getElementById('view-chat');
 
-    if (tab === 'global') {
-        Services.chat.listenToGlobalChat(); // Re-attach
-    } else {
-        // Load DMs (Not implemented fully in phase 1, showing placeholder)
-        container.innerHTML = `<div class="text-center text-gray-500 mt-10">Direct Messages coming soon!</div>`;
-    }
-}
-
-function renderMessage(msg, container) {
-    const isMe = Services.state.currentUser && msg.uid === Services.state.currentUser.uid;
-    const div = document.createElement('div');
-    div.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'} mb-4`;
-    div.innerHTML = `
-        ${!isMe ? `<span class="text-[10px] text-gray-500 font-bold mb-1 ml-1 cursor-pointer hover:text-purple-400" onclick="openGamerCard('${msg.uid}')">${msg.user}</span>` : ''}
-        <div class="message-bubble ${isMe ? 'me' : 'them'}">
-            ${msg.text}
-        </div>
-    `;
-    container.appendChild(div);
-}
-
-window.sendMsg = () => {
-    const input = document.getElementById('chatMsgInput');
-    if (input && input.value.trim()) {
-        Services.chat.sendGlobalMessage(input.value.trim());
-        input.value = '';
-    }
-}
-
-/* -------------------------------------------------------------------------- */
-/*                           SOCIAL FEED RENDERER                             */
-/* -------------------------------------------------------------------------- */
-function renderSocialFeed() {
-    const container = document.getElementById('view-chat'); // Reusing Layout
-    if (!container) return;
-
-    // If not already social layout, render it
-    if (!container.querySelector('.social-feed')) {
+    if (!isUpdate) {
         container.innerHTML = `
             <div class="chat-layout">
                 <div class="chat-list-panel">
@@ -284,111 +288,59 @@ function renderSocialFeed() {
     }
 }
 
-window.addEventListener('feedUpdated', (e) => {
-    const posts = e.detail;
-    const container = document.getElementById('social-feed-content');
-    if (container) {
-        if (posts.length === 0) {
-            container.innerHTML = `<div class="text-center text-gray-500 py-10">No recent activity. Be the first!</div>`;
+function populateTrending() {
+    const games = Services.state.gameLibrary || window.allGames || [];
+    if (games.length > 0) {
+        const trendingContainer = document.getElementById('trending-games-mini');
+        if (trendingContainer) {
+            trendingContainer.innerHTML = [...games].sort(() => 0.5 - Math.random()).slice(0, 5).map(g => `
+                <div class="flex-shrink-0 w-16 cursor-pointer group" onclick="playGame('${g.url}', '${g.title}')">
+                    <img src="${g.thumbnail}" class="w-16 h-16 rounded-xl object-cover border border-white/10 group-hover:border-purple-500 transition-all">
+                    <div class="text-[10px] text-gray-400 truncate mt-1 text-center group-hover:text-white">${g.title}</div>
+                </div>
+            `).join('');
+        }
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                           LISTENERS & ACTIONS                              */
+/* -------------------------------------------------------------------------- */
+window.switchChatTab = function (tab) {
+    window.activeChatTab = tab;
+    if (tab === 'global') {
+        renderChatInterface();
+    } else {
+        // Mock DM view
+        const container = document.getElementById('chat-messages-area');
+        if (container) container.innerHTML = `<div class="text-center text-gray-500 mt-10">Direct Messages coming soon!</div>`;
+    }
+}
+
+window.sendMsg = async function () {
+    const input = document.getElementById('chatMsgInput');
+    if (input && input.value.trim()) {
+        if (!Services.state.currentUser) {
+            document.getElementById('chatLoginOverlay').classList.add('active');
             return;
         }
-
-        container.innerHTML = posts.map(post => {
-            let contentHtml = '';
-            if (post.type === 'favorite') {
-                contentHtml = `
-                    <div class="feed-header"><b>${post.user.username}</b> favorited a game</div>
-                    <div class="feed-card">
-                        <img src="assets/icons/logo.jpg" class="feed-game-thumb"> <!-- Placeholder -->
-                        <div class="flex-1">
-                             <div class="font-bold text-white text-sm">Game ID: ${post.data.gameId}</div>
-                             <div class="text-xs text-gray-500">Arcade</div>
-                        </div>
-                        <button onclick="playGame(null, '${post.data.gameId}')" class="feed-btn-join">PLAY</button>
-                    </div>
-                `;
-            } else if (post.type === 'join') {
-                contentHtml = `<div class="feed-header"><b>${post.user.username}</b> just joined Satex Games! Welcome! 🎉</div>`;
-            } else {
-                contentHtml = `<div class="feed-header"><b>${post.user.username}</b> posted something.</div>`;
-            }
-
-            return `
-                <div class="feed-item">
-                    <img src="${post.user.avatar}" class="feed-avatar">
-                    <div class="feed-content">
-                        ${contentHtml}
-                        <div class="feed-meta">${new Date(post.timestamp?.toDate()).toLocaleTimeString()}</div>
-                    </div>
-                </div>
-            `;
-        }).join('');
+        await Services.chat.sendGlobalMessage(input.value.trim());
+        input.value = '';
     }
-});
+}
 
-/* -------------------------------------------------------------------------- */
-/*                           GAMER CARD MODAL                                 */
-/* -------------------------------------------------------------------------- */
-window.openGamerCard = async (uid) => {
-    // 1. Create Overlay if Not Exists
-    let overlay = document.getElementById('gamerCardOverlay');
-    if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'gamerCardOverlay';
-        overlay.className = 'gamer-card-overlay';
-        overlay.onclick = (e) => { if (e.target === overlay) overlay.classList.remove('active'); };
-        document.body.appendChild(overlay);
-    }
-
-    // 2. Load Data
-    overlay.innerHTML = `<div class="text-white font-bold">Loading...</div>`;
-    overlay.classList.add('active');
-
-    // Fetch user public data (using simplified fetch for now, mostly mock logic for demo)
-    // In real app, UserService.fetchPublicProfile(uid)
-
-    const isMe = Services.state.currentUser?.uid === uid;
-    const data = isMe ? Services.state.profile : { username: 'Unknown', avatar: '', xp: 0, level: 0, bio: 'Loading...' };
-    // TODO: Fetch actual other user data from Firestore
-
-    overlay.innerHTML = `
-        <div class="gamer-card">
-            <div class="card-banner">
-                <button onclick="document.getElementById('gamerCardOverlay').classList.remove('active')" class="absolute top-4 right-4 text-white/50 hover:text-white">
-                    <i class="fas fa-times text-xl"></i>
-                </button>
-            </div>
-            <div class="card-avatar">
-                <img src="${data.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + uid}" class="w-full h-full object-cover rounded-full">
-            </div>
-            <div class="card-content">
-                <h3 class="card-username">${data.username}</h3>
-                <div class="card-status">
-                    <div class="status-dot"></div> Online
-                </div>
-                
-                <div class="card-stats">
-                    <div class="stat-item">
-                        <span class="stat-val">${data.level || 1}</span>
-                        <span class="stat-label">Level</span>
-                    </div>
-                     <div class="stat-item">
-                        <span class="stat-val">${data.xp || 0}</span>
-                        <span class="stat-label">XP</span>
-                    </div>
-                     <div class="stat-item">
-                        <span class="stat-val">${data.followers_count || 0}</span>
-                        <span class="stat-label">Followers</span>
-                    </div>
-                </div>
-
-                <div class="card-actions">
-                    ${!isMe ? `<button class="btn-primary">Follow</button><button class="btn-secondary">Message</button>` : `<button class="btn-secondary w-full">Edit Profile</button>`}
-                </div>
-            </div>
+function renderMessage(msg, container) {
+    const isMe = Services.state.currentUser && msg.uid === Services.state.currentUser.uid;
+    const div = document.createElement('div');
+    div.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'} mb-4`;
+    div.innerHTML = `
+        ${!isMe ? `<span class="text-[10px] text-gray-500 font-bold mb-1 ml-1 cursor-pointer hover:text-purple-400" onclick="alert('Profile: ${msg.uid}')">${msg.user}</span>` : ''}
+        <div class="message-bubble ${isMe ? 'me' : 'them'}">
+            ${msg.text}
         </div>
     `;
-};
+    container.appendChild(div);
+}
 
 /* -------------------------------------------------------------------------- */
 /*                           AUTH HANDLERS                                    */
@@ -440,4 +392,3 @@ window.toggleAuthMode = function (mode) {
         if (title) title.innerText = "PLAYER LOGIN";
     }
 }
-
