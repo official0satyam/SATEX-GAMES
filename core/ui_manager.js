@@ -94,7 +94,16 @@ function renderProfile() {
     if (!container) return;
 
     if (!currentUserData) {
-        container.innerHTML = `<div class="p-8 text-center text-gray-500">Please Login to view profile</div>`;
+        container.innerHTML = `
+            <div class="flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
+                <i class="fas fa-lock text-6xl text-gray-700 mb-6"></i>
+                <h2 class="text-2xl font-bold text-white mb-2">Member Access Only</h2>
+                <p class="text-gray-500 mb-8 max-w-xs">Viewing profiles requires an active Satex Games account.</p>
+                <button onclick="document.getElementById('chatLoginOverlay').classList.add('active')" class="px-8 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white shadow-lg shadow-purple-900/40 transition-all transform hover:scale-105">
+                    Login / Signup
+                </button>
+            </div>
+        `;
         return;
     }
 
@@ -184,6 +193,20 @@ function renderChatInterface() {
             </div>
         </div>
     `;
+
+    // Populate Trending
+    const games = Services.state.gameLibrary || [];
+    if (games.length > 0) {
+        const trendingContainer = document.getElementById('trending-games-mini');
+        if (trendingContainer) {
+            trendingContainer.innerHTML = [...games].sort(() => 0.5 - Math.random()).slice(0, 5).map(g => `
+                <div class="flex-shrink-0 w-16 cursor-pointer group" onclick="playGame('${g.url}', '${g.title}')">
+                    <img src="${g.thumbnail}" class="w-16 h-16 rounded-xl object-cover border border-white/10 group-hover:border-purple-500 transition-all">
+                    <div class="text-[10px] text-gray-400 truncate mt-1 text-center group-hover:text-white">${g.title}</div>
+                </div>
+            `).join('');
+        }
+    }
 
     // Initial Load
     Services.chat.listenToGlobalChat();
@@ -366,4 +389,55 @@ window.openGamerCard = async (uid) => {
         </div>
     `;
 };
+
+/* -------------------------------------------------------------------------- */
+/*                           AUTH HANDLERS                                    */
+/* -------------------------------------------------------------------------- */
+
+window.handleLogin = async function () {
+    const email = document.getElementById('emailInput').value;
+    const pass = document.getElementById('passwordInput').value;
+    const errorDiv = document.getElementById('authError');
+    if (errorDiv) errorDiv.textContent = "Logging in...";
+
+    try {
+        await Services.auth.login(email, pass);
+        document.getElementById('chatLoginOverlay').classList.remove('active');
+    } catch (e) {
+        if (errorDiv) errorDiv.textContent = e.message;
+    }
+};
+
+window.handleSignup = async function () {
+    const username = document.getElementById('signupUsername').value.trim();
+    const email = document.getElementById('signupEmail').value;
+    const pass = document.getElementById('signupPassword').value;
+    const errorDiv = document.getElementById('authError');
+
+    if (!username) return errorDiv.textContent = "Username required";
+    if (errorDiv) errorDiv.textContent = "Creating account...";
+
+    try {
+        await Services.auth.signup(username, email, pass);
+        document.getElementById('chatLoginOverlay').classList.remove('active');
+    } catch (e) {
+        if (errorDiv) errorDiv.textContent = e.message;
+    }
+};
+
+window.toggleAuthMode = function (mode) {
+    const loginForm = document.getElementById('loginForm');
+    const signupForm = document.getElementById('signupForm');
+    const title = document.querySelector('#chatLoginOverlay h3');
+
+    if (mode === 'signup') {
+        loginForm.classList.add('hidden');
+        signupForm.classList.remove('hidden');
+        if (title) title.innerText = "CREATE ACCOUNT";
+    } else {
+        loginForm.classList.remove('hidden');
+        signupForm.classList.add('hidden');
+        if (title) title.innerText = "PLAYER LOGIN";
+    }
+}
 
