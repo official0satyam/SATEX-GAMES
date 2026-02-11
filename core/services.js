@@ -148,8 +148,10 @@ export const UserService = {
         const snap = await getDoc(userRef);
 
         if (!snap.exists()) {
+            const safeName = manualUsername || user.displayName || `User_${user.uid.slice(0, 5)}`;
             await setDoc(userRef, {
-                username: manualUsername || user.displayName || `User_${user.uid.slice(0, 5)}`,
+                username: safeName,
+                username_lc: safeName.toLowerCase(),
                 email: user.email,
                 uid: user.uid,
                 avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
@@ -162,6 +164,11 @@ export const UserService = {
                 favorite_games: [],
                 joined: new Date().toISOString()
             });
+        } else {
+            const existing = snap.data() || {};
+            if (!existing.username_lc && existing.username) {
+                await updateDoc(userRef, { username_lc: String(existing.username).toLowerCase() });
+            }
         }
     },
 
@@ -180,6 +187,63 @@ export const UserService = {
                 status: { state, game, last_seen: serverTimestamp() }
             });
         } catch (e) { console.warn("Status update failed", e); }
+    },
+
+    updateProfileFields: async ({ username, bio, avatar }) => {
+        if (!State.currentUser) throw new Error("Login required");
+
+        const updates = {};
+        const current = State.profile || {};
+        const safeUsername = (username || "").trim();
+        const safeBio = (bio || "").trim();
+        const safeAvatar = (avatar || "").trim();
+
+        if (safeUsername && safeUsername !== current.username) {
+            if (safeUsername.length < 3) throw new Error("Username must be at least 3 characters");
+            const normalized = safeUsername.toLowerCase();
+            const q = query(collection(db, "users"), where("username", "==", safeUsername));
+            const snaps = await getDocs(q);
+            const hasConflict = snaps.docs.some(d => d.id !== State.currentUser.uid);
+            if (hasConflict) throw new Error("Username already taken");
+            updates.username = safeUsername;
+            updates.username_lc = normalized;
+        }
+
+        if (safeBio.length > 180) throw new Error("Bio must be 180 characters or less");
+        if (safeBio !== (current.bio || "")) {
+            updates.bio = safeBio;
+        }
+
+        if (safeAvatar && safeAvatar !== current.avatar) {
+            updates.avatar = safeAvatar;
+        }
+
+        if (Object.keys(updates).length === 0) return;
+
+        await updateDoc(doc(db, "users", State.currentUser.uid), updates);
+        if (updates.username) {
+            try {
+                await updateProfile(State.currentUser, { displayName: updates.username });
+            } catch (err) {
+                console.warn("DisplayName update failed", err);
+            }
+        }
+        await UserService.fetchProfile(State.currentUser.uid);
+        await FeedService.postActivity('profile_update', { fields: Object.keys(updates) });
+    },
+
+    toggleFavoriteGame: async (gameId) => {
+        if (!State.currentUser || !gameId) return;
+        const ref = doc(db, "users", State.currentUser.uid);
+        const favorites = State.profile?.favorite_games || [];
+        const isFav = favorites.includes(gameId);
+        if (isFav) {
+            await updateDoc(ref, { favorite_games: arrayRemove(gameId) });
+        } else {
+            await updateDoc(ref, { favorite_games: arrayUnion(gameId) });
+            await FeedService.postActivity('favorite', { gameId });
+        }
+        await UserService.fetchProfile(State.currentUser.uid);
     },
 
     toggleFollowGame: async (gameId) => {
@@ -203,21 +267,47 @@ export const UserService = {
 /* -------------------------------------------------------------------------- */
 export const FriendService = {
     searchUsers: async (searchTerm) => {
-        const q = query(
+        const safeTerm = (searchTerm || "").trim();
+        if (!safeTerm) return [];
+
+        const lowerTerm = safeTerm.toLowerCase();
+        const qLower = query(
             collection(db, "users"),
-            where("username", ">=", searchTerm),
-            where("username", "<=", searchTerm + '\uf8ff'),
-            limit(5)
+            where("username_lc", ">=", lowerTerm),
+            where("username_lc", "<=", lowerTerm + '\uf8ff'),
+            limit(8)
         );
-        const snaps = await getDocs(q);
+        let snaps = await getDocs(qLower);
+
+        if (snaps.empty) {
+            const fallbackQ = query(
+                collection(db, "users"),
+                where("username", ">=", safeTerm),
+                where("username", "<=", safeTerm + '\uf8ff'),
+                limit(8)
+            );
+            snaps = await getDocs(fallbackQ);
+        }
+
         return snaps.docs.map(d => d.data());
     },
 
     sendRequest: async (targetUid) => {
-        if (!State.currentUser) return;
-        if (targetUid === State.currentUser.uid) return;
-        // Add to My Sent
-        // Add to Their Received (Simplification: Just creating a 'requests' subcol on target)
+        if (!State.currentUser) throw new Error("Login required");
+        if (targetUid === State.currentUser.uid) throw new Error("You cannot add yourself");
+
+        const existingFriend = await getDoc(doc(db, `users/${State.currentUser.uid}/friends/${targetUid}`));
+        if (existingFriend.exists()) throw new Error("Already friends");
+
+        const existingRequest = await getDoc(doc(db, `users/${targetUid}/requests/${State.currentUser.uid}`));
+        if (existingRequest.exists() && (existingRequest.data()?.status || 'pending') === 'pending') {
+            throw new Error("Request already sent");
+        }
+        const reverseRequest = await getDoc(doc(db, `users/${State.currentUser.uid}/requests/${targetUid}`));
+        if (reverseRequest.exists() && (reverseRequest.data()?.status || 'pending') === 'pending') {
+            throw new Error("This player already sent you a request. Accept it from Requests.");
+        }
+
         await setDoc(doc(db, `users/${targetUid}/requests/${State.currentUser.uid}`), {
             from: State.currentUser.uid,
             username: State.profile?.username || State.currentUser.displayName || "Player",
@@ -225,6 +315,7 @@ export const FriendService = {
             timestamp: serverTimestamp(),
             status: 'pending'
         });
+        return { status: 'sent' };
     },
 
     listenToFriends: () => {
@@ -331,6 +422,14 @@ export const FeedService = {
                 comments: 0
             });
         } catch (e) { console.error("Feed Post Error", e); }
+    },
+
+    postStatus: async (text) => {
+        if (!State.currentUser) throw new Error("Login required");
+        const safeText = (text || "").trim();
+        if (!safeText) throw new Error("Status text cannot be empty");
+        if (safeText.length > 260) throw new Error("Status must be 260 characters or less");
+        await FeedService.postActivity("status", { text: safeText });
     },
 
     listenToFeed: () => {

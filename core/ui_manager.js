@@ -11,11 +11,13 @@ window.chatState = {
     friends: [],
     requests: [],
     onlineUsers: [],
-    activeDmFriend: null
+    activeDmFriend: null,
+    mobileListOpen: false
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log("[UI] Initializing...");
+    ensureToastStack();
 
     if (window.loadGames) await window.loadGames();
 
@@ -31,6 +33,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     _renderView(view, false);
+
+    document.querySelectorAll('.sidebar-item[data-view]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const nextView = btn.getAttribute('data-view');
+            if (nextView) window.switchView(nextView);
+        });
+    });
 
     window.addEventListener('authStateChanged', (e) => {
         const user = e.detail.user;
@@ -74,15 +83,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     window.addEventListener('friendsUpdated', (e) => {
         window.chatState.friends = e.detail || [];
-        if (isChatViewActive() && window.activeChatTab === 'dms') {
+        if (isChatViewActive()) {
             renderChatListContent();
+            updateChatTabStyles();
         }
     });
 
     window.addEventListener('requestsUpdated', (e) => {
         window.chatState.requests = e.detail || [];
-        if (isChatViewActive() && window.activeChatTab === 'dms') {
+        if (isChatViewActive()) {
             renderChatListContent();
+            updateChatTabStyles();
         }
     });
 
@@ -193,13 +204,20 @@ function renderProfile() {
     }
 
     const userData = window.currentUserData || { username: 'Loading...', level: 1, xp: 0 };
+    const recentGames = getRecentGames().slice(0, 8);
+    const favoriteGames = resolveFavoriteGames(userData.favorite_games || []).slice(0, 8);
 
     container.innerHTML = `
         <div class="profile-header group relative">
             <img src="https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop" class="banner-img">
-            <button onclick="window.Services.auth.logout()" class="absolute top-4 right-4 bg-red-600/80 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold backdrop-blur-sm transition-all shadow-lg">
-                <i class="fas fa-sign-out-alt mr-1"></i> LOGOUT
-            </button>
+            <div class="absolute top-4 right-4 flex gap-2">
+                <button onclick="window.openEditProfileModal()" class="bg-white/15 hover:bg-white/25 text-white px-4 py-2 rounded-lg text-xs font-bold backdrop-blur-sm transition-all shadow-lg">
+                    <i class="fas fa-pen mr-1"></i> EDIT
+                </button>
+                <button onclick="window.Services.auth.logout()" class="bg-red-600/80 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold backdrop-blur-sm transition-all shadow-lg">
+                    <i class="fas fa-sign-out-alt mr-1"></i> LOGOUT
+                </button>
+            </div>
             <div class="profile-avatar-container">
                 <div class="avatar-ring">
                     <img src="${userData.avatar || 'assets/icons/logo.jpg'}" class="avatar-img">
@@ -208,14 +226,18 @@ function renderProfile() {
             </div>
         </div>
 
-        <div class="px-4 md:px-0 mt-16 md:mt-0">
-            <h2 class="text-3xl font-black text-white tracking-tight">${escapeHtml(userData.username || 'Player')}</h2>
-            <div class="flex gap-4 mt-2 mb-6 text-sm text-gray-400">
-                <span><b>${userData.followers_count || 0}</b> Followers</span>
-                <span><b>${userData.following_games?.length || 0}</b> Following</span>
+        <div class="px-4 md:px-0 mt-16 md:mt-0 space-y-8">
+            <div>
+                <h2 class="text-3xl font-black text-white tracking-tight">${escapeHtml(userData.username || 'Player')}</h2>
+                <p class="text-sm text-gray-400 mt-2 max-w-2xl">${escapeHtml(userData.bio || 'No bio yet. Click edit profile to add one.')}</p>
+                <div class="flex flex-wrap gap-4 mt-3 text-sm text-gray-400">
+                    <span><b>${userData.followers_count || 0}</b> Followers</span>
+                    <span><b>${(userData.favorite_games || []).length}</b> Favorites</span>
+                    <span><b>${(userData.following_games || []).length}</b> Following</span>
+                </div>
             </div>
 
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div class="stat-card">
                    <div class="text-2xl font-black text-white">${userData.xp || 0}</div>
                    <div class="text-xs font-bold text-gray-500 uppercase">Total XP</div>
@@ -224,6 +246,38 @@ function renderProfile() {
                    <div class="text-2xl font-black text-white">${userData.games_played || 0}</div>
                    <div class="text-xs font-bold text-gray-500 uppercase">Games Played</div>
                 </div>
+                <div class="stat-card">
+                   <div class="text-2xl font-black text-white">${recentGames.length}</div>
+                   <div class="text-xs font-bold text-gray-500 uppercase">Recent Games</div>
+                </div>
+                <div class="stat-card">
+                   <div class="text-2xl font-black text-white">${favoriteGames.length}</div>
+                   <div class="text-xs font-bold text-gray-500 uppercase">Favorites</div>
+                </div>
+            </div>
+
+            <div class="bg-white/5 border border-white/10 rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-lg font-black text-white">Favorite Games</h3>
+                    <span class="text-xs text-gray-500">Tap heart to remove</span>
+                </div>
+                ${favoriteGames.length ? `
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        ${favoriteGames.map(game => renderProfileGameCard(game, true)).join('')}
+                    </div>
+                ` : `<div class="text-sm text-gray-500">No favorite games yet. Add from your recent games below.</div>`}
+            </div>
+
+            <div class="bg-white/5 border border-white/10 rounded-2xl p-4 mb-8">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-lg font-black text-white">Recent Games</h3>
+                    <span class="text-xs text-gray-500">Keep your profile active by playing</span>
+                </div>
+                ${recentGames.length ? `
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        ${recentGames.map(game => renderProfileGameCard(game, false)).join('')}
+                    </div>
+                ` : `<div class="text-sm text-gray-500">No recent games found yet.</div>`}
             </div>
         </div>
     `;
@@ -258,6 +312,12 @@ function renderChatInterface() {
                     <button onclick="switchChatTab('global')" id="tab-mobile-global" class="px-4 py-2 rounded-lg text-xs font-bold">Global</button>
                     <button onclick="switchChatTab('dms')" id="tab-mobile-dms" class="px-4 py-2 rounded-lg text-xs font-bold">DMs</button>
                 </div>
+                <div class="md:hidden px-2 pb-2 border-b border-white/5">
+                    <button id="mobileListToggleBtn" onclick="window.toggleMobileChatList()" class="w-full px-3 py-2 rounded-lg bg-white/5 text-xs font-bold text-gray-200">
+                        Show Friends & Online
+                    </button>
+                    <div id="mobile-chat-list-content" class="hidden mt-2 bg-black/20 border border-white/10 rounded-xl p-2 max-h-[32vh] overflow-y-auto"></div>
+                </div>
 
                 <div id="chat-messages-area" class="flex-1 overflow-y-auto p-4 content-start chat-messages-area"></div>
 
@@ -283,6 +343,7 @@ function renderChatInterface() {
     populateTrending();
     window.Services?.chat?.listenToGlobalChat?.();
     renderChatListContent();
+    updateMobileListVisibility();
     window.switchChatTab(window.activeChatTab || 'global', true);
 }
 
@@ -308,6 +369,15 @@ function renderSocialFeed(isUpdate = false) {
                 <div class="chat-view-panel overflow-y-auto">
                     <div class="p-6 max-w-2xl mx-auto w-full">
                         <h2 class="text-2xl font-black text-white mb-6">Activity Feed</h2>
+                        <div class="bg-white/5 border border-white/10 rounded-2xl p-4 mb-6">
+                            <textarea id="statusPostInput" maxlength="260" placeholder="Share a status update..." class="w-full h-24 bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white resize-none focus:outline-none focus:border-purple-500/50"></textarea>
+                            <div class="flex items-center justify-between mt-3">
+                                <span class="text-[11px] text-gray-500">260 characters max</span>
+                                <button onclick="window.publishStatusPost()" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white">
+                                    Post Update
+                                </button>
+                            </div>
+                        </div>
                         <div id="social-feed-content" class="social-feed"></div>
                     </div>
                 </div>
@@ -334,6 +404,7 @@ function renderFeedPosts() {
         const avatar = user.avatar || 'assets/icons/logo.jpg';
         const title = getFeedTitle(post);
         const time = formatDateTime(post.timestamp);
+        const body = getFeedBody(post);
 
         return `
             <div class="feed-item">
@@ -341,6 +412,7 @@ function renderFeedPosts() {
                 <div class="feed-content">
                     <div class="feed-header"><b>${escapeHtml(user.username || 'Player')}</b> ${title}</div>
                     <div class="feed-meta">${time}</div>
+                    ${body}
                 </div>
             </div>
         `;
@@ -349,8 +421,34 @@ function renderFeedPosts() {
 
 function getFeedTitle(post) {
     if (post.type === 'friend') return `became friends with ${escapeHtml(post.data?.friendName || 'a player')}.`;
-    if (post.type === 'favorite') return `followed a game (${escapeHtml(post.data?.gameId || 'unknown')}).`;
+    if (post.type === 'favorite') return `favorited a game.`;
+    if (post.type === 'status') return `shared a status.`;
+    if (post.type === 'profile_update') return `updated profile details.`;
     return `posted an update.`;
+}
+
+function getFeedBody(post) {
+    if (post.type === 'favorite') {
+        const game = findGameById(post.data?.gameId);
+        if (!game) return '';
+        return `
+            <div class="mt-2 bg-black/20 border border-white/10 rounded-xl p-2 flex items-center gap-2">
+                <img src="${game.thumbnail || 'assets/icons/logo.jpg'}" class="w-10 h-10 rounded-lg object-cover" alt="${escapeHtml(game.title)}">
+                <span class="text-xs text-gray-200">${escapeHtml(game.title)}</span>
+            </div>
+        `;
+    }
+
+    if (post.type === 'status') {
+        return `<div class="mt-2 text-sm text-gray-200 bg-black/20 border border-white/10 rounded-xl p-3">${escapeHtml(post.data?.text || '')}</div>`;
+    }
+
+    if (post.type === 'profile_update') {
+        const fields = (post.data?.fields || []).join(', ');
+        return `<div class="mt-2 text-xs text-gray-400">Updated: ${escapeHtml(fields || 'profile fields')}</div>`;
+    }
+
+    return '';
 }
 
 function populateTrending() {
@@ -371,31 +469,39 @@ function populateTrending() {
 
 function renderChatListContent() {
     const list = document.getElementById('chat-list-content');
-    if (!list) return;
+    const mobileList = document.getElementById('mobile-chat-list-content');
+    if (!list && !mobileList) return;
 
     if (window.activeChatTab === 'global') {
-        const onlinePreview = (window.chatState.onlineUsers || []).slice(0, 8);
-        list.innerHTML = `
-            <div class="p-2">
-                <div class="bg-white/5 border border-white/10 rounded-xl p-3 mb-3">
-                    <p class="text-xs text-gray-300 font-bold mb-1">Global Lobby</p>
-                    <p class="text-[11px] text-gray-500">Talk with all players in real time.</p>
-                </div>
-                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Online Players</div>
-                <div class="space-y-2">
-                    ${onlinePreview.length ? onlinePreview.map(user => `
-                        <div class="flex items-center gap-2 bg-white/5 rounded-lg p-2">
-                            <span class="w-2 h-2 rounded-full bg-green-400"></span>
-                            <span class="text-xs text-gray-200 truncate">${escapeHtml(user.username || 'Player')}</span>
-                        </div>
-                    `).join('') : `<div class="text-xs text-gray-500 px-1">No online players found.</div>`}
-                </div>
-            </div>
-        `;
+        const globalHtml = renderGlobalListPanel();
+        if (list) list.innerHTML = globalHtml;
+        if (mobileList) mobileList.innerHTML = globalHtml;
         return;
     }
 
-    renderDirectListPanel(list);
+    if (list) renderDirectListPanel(list);
+    if (mobileList) renderMobileDirectPanel(mobileList);
+}
+
+function renderGlobalListPanel() {
+    const onlinePreview = (window.chatState.onlineUsers || []).slice(0, 12);
+    return `
+        <div class="p-2">
+            <div class="bg-white/5 border border-white/10 rounded-xl p-3 mb-3">
+                <p class="text-xs text-gray-300 font-bold mb-1">Global Lobby</p>
+                <p class="text-[11px] text-gray-500">Talk with all players in real time.</p>
+            </div>
+            <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Online Players</div>
+            <div class="space-y-2">
+                ${onlinePreview.length ? onlinePreview.map(user => `
+                    <div class="flex items-center gap-2 bg-white/5 rounded-lg p-2">
+                        <span class="w-2 h-2 rounded-full bg-green-400"></span>
+                        <span class="text-xs text-gray-200 truncate">${escapeHtml(user.username || 'Player')}</span>
+                    </div>
+                `).join('') : `<div class="text-xs text-gray-500 px-1">No online players found.</div>`}
+            </div>
+        </div>
+    `;
 }
 
 function renderDirectListPanel(list) {
@@ -470,13 +576,67 @@ function renderDirectListPanel(list) {
     `;
 }
 
+function renderMobileDirectPanel(list) {
+    if (!window.Services?.state?.currentUser) {
+        list.innerHTML = `<div class="text-xs text-gray-400 p-2">Login to view friends and requests.</div>`;
+        return;
+    }
+
+    const requests = window.chatState.requests || [];
+    const friends = window.chatState.friends || [];
+    const onlineIds = new Set((window.chatState.onlineUsers || []).map(u => u.uid));
+
+    list.innerHTML = `
+        <div class="space-y-3">
+            <div class="bg-white/5 border border-white/10 rounded-xl p-2">
+                <div class="flex gap-2">
+                    <input id="friendSearchInputMobile" type="text" placeholder="Find username..." class="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none">
+                    <button onclick="window.searchFriendUsersMobile()" class="px-3 py-2 rounded-lg bg-white/10 text-xs text-white font-bold">Find</button>
+                </div>
+                <div id="friend-search-results-mobile" class="mt-2 space-y-2"></div>
+            </div>
+            <div>
+                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Requests</div>
+                <div class="space-y-2">
+                    ${requests.length ? requests.map(req => `
+                        <div class="bg-white/5 border border-white/10 rounded-lg p-2 flex items-center justify-between gap-2">
+                            <span class="text-xs text-gray-200 truncate">${escapeHtml(req.username || req.from)}</span>
+                            <button onclick="window.acceptFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-green-600 text-[10px] font-bold">Accept</button>
+                        </div>
+                    `).join('') : `<div class="text-xs text-gray-500 px-1">No pending requests.</div>`}
+                </div>
+            </div>
+            <div>
+                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Friends</div>
+                <div class="space-y-2">
+                    ${friends.length ? friends.map(friend => {
+                        const isOnline = onlineIds.has(friend.uid);
+                        const encodedName = encodeURIComponent(friend.username || 'Player');
+                        const encodedAvatar = encodeURIComponent(friend.avatar || '');
+                        return `
+                            <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="w-full text-left bg-white/5 border border-white/10 rounded-lg p-2 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : 'bg-gray-600'}"></span>
+                                <span class="text-xs text-gray-200 truncate">${escapeHtml(friend.username || friend.uid)}</span>
+                            </button>
+                        `;
+                    }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 /* -------------------------------------------------------------------------- */
 /*                           CHAT LISTENERS & ACTIONS                         */
 /* -------------------------------------------------------------------------- */
 
 window.switchChatTab = function (tab, skipListRefresh = false) {
     window.activeChatTab = tab === 'dms' ? 'dms' : 'global';
+    if (window.activeChatTab === 'dms' && window.innerWidth <= 768) {
+        window.chatState.mobileListOpen = true;
+    }
     updateChatTabStyles();
+    updateMobileListVisibility();
 
     const input = document.getElementById('chatMsgInput');
     if (input) {
@@ -505,12 +665,36 @@ function updateChatTabStyles() {
     const desktopDms = document.getElementById('tab-dms');
     const mobileGlobal = document.getElementById('tab-mobile-global');
     const mobileDms = document.getElementById('tab-mobile-dms');
+    const pendingRequests = (window.chatState.requests || []).length;
+
+    if (desktopGlobal) desktopGlobal.textContent = "Global";
+    if (mobileGlobal) mobileGlobal.textContent = "Global";
+    if (desktopDms) desktopDms.textContent = pendingRequests > 0 ? `DMs (${pendingRequests})` : "DMs";
+    if (mobileDms) mobileDms.textContent = pendingRequests > 0 ? `DMs (${pendingRequests})` : "DMs";
 
     setTabClasses(desktopGlobal, window.activeChatTab === 'global');
     setTabClasses(desktopDms, window.activeChatTab === 'dms');
     setMobileTabClasses(mobileGlobal, window.activeChatTab === 'global');
     setMobileTabClasses(mobileDms, window.activeChatTab === 'dms');
 }
+
+function updateMobileListVisibility() {
+    const mobileList = document.getElementById('mobile-chat-list-content');
+    const toggleBtn = document.getElementById('mobileListToggleBtn');
+    if (!mobileList || !toggleBtn) return;
+
+    const shouldOpen = window.chatState.mobileListOpen;
+    mobileList.classList.toggle('hidden', !shouldOpen);
+    toggleBtn.textContent = shouldOpen ? "Hide Friends & Online" : "Show Friends & Online";
+}
+
+window.toggleMobileChatList = function () {
+    window.chatState.mobileListOpen = !window.chatState.mobileListOpen;
+    if (window.chatState.mobileListOpen) {
+        renderChatListContent();
+    }
+    updateMobileListVisibility();
+};
 
 function setTabClasses(el, active) {
     if (!el) return;
@@ -587,7 +771,10 @@ window.sendMsg = async function () {
     try {
         if (window.activeChatTab === 'dms') {
             const friend = window.chatState.activeDmFriend;
-            if (!friend) return;
+            if (!friend) {
+                showToast("Select a friend to start DM", "error");
+                return;
+            }
             await window.Services.chat.sendDirectMessage(friend.uid, text);
         } else {
             await window.Services.chat.sendGlobalMessage(text);
@@ -595,12 +782,21 @@ window.sendMsg = async function () {
         input.value = '';
     } catch (e) {
         console.error("[CHAT] send error:", e);
+        showToast("Message failed to send", "error");
     }
 };
 
 window.searchFriendUsers = async function () {
-    const input = document.getElementById('friendSearchInput');
-    const resultsBox = document.getElementById('friend-search-results');
+    await searchFriendUsersByIds('friendSearchInput', 'friend-search-results');
+};
+
+window.searchFriendUsersMobile = async function () {
+    await searchFriendUsersByIds('friendSearchInputMobile', 'friend-search-results-mobile');
+};
+
+async function searchFriendUsersByIds(inputId, resultsId) {
+    const input = document.getElementById(inputId);
+    const resultsBox = document.getElementById(resultsId);
     if (!input || !resultsBox) return;
 
     const term = input.value.trim();
@@ -633,13 +829,15 @@ window.searchFriendUsers = async function () {
         console.error("[FRIEND] search error:", e);
         resultsBox.innerHTML = `<div class="text-xs text-red-400">Search failed.</div>`;
     }
-};
+}
 
 window.sendFriendRequest = async function (targetUid) {
     try {
         await window.Services.friend.sendRequest(targetUid);
+        showToast("Friend request sent", "success");
     } catch (e) {
         console.error("[FRIEND] request error:", e);
+        showToast(e.message || "Could not send request", "error");
     }
 };
 
@@ -649,8 +847,10 @@ window.acceptFriendRequest = async function (fromUid) {
 
     try {
         await window.Services.friend.acceptRequest(request);
+        showToast(`You and ${request.username || 'player'} are now friends`, "success");
     } catch (e) {
         console.error("[FRIEND] accept error:", e);
+        showToast("Could not accept request", "error");
     }
 };
 
@@ -678,6 +878,105 @@ function renderMessage(msg, container) {
     `;
     container.appendChild(div);
 }
+
+/* -------------------------------------------------------------------------- */
+/*                           SOCIAL ACTION HANDLERS                           */
+/* -------------------------------------------------------------------------- */
+
+window.publishStatusPost = async function () {
+    const input = document.getElementById('statusPostInput');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) {
+        showToast("Write something first", "error");
+        return;
+    }
+
+    try {
+        await window.Services.feed.postStatus(text);
+        input.value = '';
+        showToast("Status posted", "success");
+    } catch (e) {
+        showToast(e.message || "Unable to post status", "error");
+    }
+};
+
+window.toggleFavoriteGame = async function (gameId) {
+    if (!window.Services?.state?.currentUser) {
+        window.openAuthOverlay();
+        return;
+    }
+    try {
+        await window.Services.user.toggleFavoriteGame(gameId);
+        showToast("Favorites updated", "success");
+        if (document.getElementById('view-profile')?.classList.contains('active')) {
+            renderProfile();
+        }
+    } catch (e) {
+        showToast(e.message || "Unable to update favorites", "error");
+    }
+};
+
+window.openEditProfileModal = function () {
+    const userData = window.currentUserData || {};
+    let modal = document.getElementById('editProfileModal');
+
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'editProfileModal';
+        modal.className = 'hidden fixed inset-0 z-[7100] bg-black/80 backdrop-blur-md items-center justify-center p-4';
+        modal.innerHTML = `
+            <div class="w-full max-w-md bg-[#13131a] border border-white/10 rounded-2xl p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-black text-white">Edit Profile</h3>
+                    <button onclick="window.closeEditProfileModal()" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+                </div>
+                <label class="text-xs text-gray-400 font-bold">Username</label>
+                <input id="editProfileUsername" type="text" class="w-full mt-1 mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm">
+                <label class="text-xs text-gray-400 font-bold">Avatar URL</label>
+                <input id="editProfileAvatar" type="text" class="w-full mt-1 mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm">
+                <label class="text-xs text-gray-400 font-bold">Bio</label>
+                <textarea id="editProfileBio" maxlength="180" class="w-full mt-1 mb-4 h-24 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm resize-none"></textarea>
+                <div class="flex gap-2">
+                    <button onclick="window.closeEditProfileModal()" class="flex-1 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-bold">Cancel</button>
+                    <button onclick="window.saveProfileEdits()" class="flex-1 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-bold">Save</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) window.closeEditProfileModal();
+        });
+    }
+
+    document.getElementById('editProfileUsername').value = userData.username || '';
+    document.getElementById('editProfileAvatar').value = userData.avatar || '';
+    document.getElementById('editProfileBio').value = userData.bio || '';
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+};
+
+window.closeEditProfileModal = function () {
+    const modal = document.getElementById('editProfileModal');
+    if (!modal) return;
+    modal.classList.remove('flex');
+    modal.classList.add('hidden');
+};
+
+window.saveProfileEdits = async function () {
+    const username = (document.getElementById('editProfileUsername')?.value || '').trim();
+    const avatar = (document.getElementById('editProfileAvatar')?.value || '').trim();
+    const bio = (document.getElementById('editProfileBio')?.value || '').trim();
+
+    try {
+        await window.Services.user.updateProfileFields({ username, avatar, bio });
+        window.closeEditProfileModal();
+        showToast("Profile updated successfully", "success");
+        renderProfile();
+    } catch (e) {
+        showToast(e.message || "Unable to save profile", "error");
+    }
+};
 
 /* -------------------------------------------------------------------------- */
 /*                                AUTH MODAL                                  */
@@ -709,8 +1008,10 @@ window.handleLogin = async function () {
     try {
         await window.Services.auth.login(email, pass);
         closeAuthOverlay();
+        showToast("Logged in successfully", "success");
     } catch (e) {
         if (errorDiv) errorDiv.textContent = e.message;
+        showToast("Login failed", "error");
     }
 };
 
@@ -729,8 +1030,10 @@ window.handleSignup = async function () {
     try {
         await window.Services.auth.signup(username, email, pass);
         closeAuthOverlay();
+        showToast("Account created", "success");
     } catch (e) {
         if (errorDiv) errorDiv.textContent = e.message;
+        showToast("Signup failed", "error");
     }
 };
 
@@ -776,12 +1079,108 @@ window.forceSyncProfile = async function () {
         return;
     }
     await window.Services.user.fetchProfile(current.uid);
+    showToast("Profile refreshed", "success");
 };
 
 window.closePrivateChat = function () {
     window.switchView('chat');
     window.switchChatTab('dms');
 };
+
+function renderProfileGameCard(game, isFavorite) {
+    const safeTitle = escapeHtml(game.title || 'Game');
+    const safeThumb = game.thumbnail || 'assets/icons/logo.jpg';
+    const safeUrl = escapeAttr(game.url || '');
+    const safeGameId = game.id ? escapeAttr(game.id) : '';
+    const favoriteBtn = game.id ? `
+        <button onclick="window.toggleFavoriteGame('${safeGameId}')" class="px-2 py-1 rounded-lg ${isFavorite ? 'bg-pink-600/80 text-white' : 'bg-white/10 text-gray-300'} text-[10px] font-bold">
+            <i class="fas fa-heart mr-1"></i>${isFavorite ? 'Saved' : 'Save'}
+        </button>
+    ` : `<span class="text-[10px] text-gray-600">No ID</span>`;
+
+    return `
+        <div class="bg-black/20 border border-white/10 rounded-xl p-2">
+            <img src="${safeThumb}" class="w-full h-20 object-cover rounded-lg mb-2" alt="${safeTitle}">
+            <div class="text-xs font-bold text-white truncate mb-2">${safeTitle}</div>
+            <div class="flex items-center justify-between gap-1">
+                <button onclick="playGame('${safeUrl}','${escapeAttr(game.title || 'Game')}')" class="px-2 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold">
+                    Play
+                </button>
+                ${favoriteBtn}
+            </div>
+        </div>
+    `;
+}
+
+function getRecentGames() {
+    try {
+        const recent = JSON.parse(localStorage.getItem('satex_recent') || '[]');
+        return recent.map(g => normalizeGame(g)).filter(Boolean);
+    } catch (e) {
+        return [];
+    }
+}
+
+function resolveFavoriteGames(gameIds) {
+    if (!Array.isArray(gameIds)) return [];
+    return gameIds.map(id => findGameById(id)).filter(Boolean);
+}
+
+function findGameById(gameId) {
+    if (!gameId) return null;
+    const games = window.Services?.state?.gameLibrary || window.allGames || [];
+    const game = games.find(g => g.id === gameId);
+    return game ? normalizeGame(game) : null;
+}
+
+function normalizeGame(raw) {
+    if (!raw) return null;
+    const url = raw.url || raw.path;
+    if (!url) return null;
+    return {
+        id: raw.id || extractIdFromUrl(url),
+        title: raw.title || 'Game',
+        url,
+        thumbnail: raw.thumbnail || 'assets/icons/logo.jpg',
+        category: raw.category || 'Arcade'
+    };
+}
+
+function extractIdFromUrl(url) {
+    const games = window.Services?.state?.gameLibrary || window.allGames || [];
+    const match = games.find(g => (g.url || g.path) === url);
+    if (match?.id) return match.id;
+    const parts = String(url).split('/');
+    return parts.length > 1 ? parts[parts.length - 2] : null;
+}
+
+function ensureToastStack() {
+    if (document.getElementById('toastStack')) return;
+    const stack = document.createElement('div');
+    stack.id = 'toastStack';
+    stack.className = 'fixed top-20 right-4 z-[7200] flex flex-col gap-2 pointer-events-none';
+    document.body.appendChild(stack);
+}
+
+function showToast(message, type = 'info') {
+    ensureToastStack();
+    const stack = document.getElementById('toastStack');
+    if (!stack) return;
+
+    const tone = type === 'success'
+        ? 'border-green-500/40 bg-green-500/15 text-green-100'
+        : type === 'error'
+            ? 'border-red-500/40 bg-red-500/15 text-red-100'
+            : 'border-purple-500/40 bg-purple-500/15 text-purple-100';
+
+    const toast = document.createElement('div');
+    toast.className = `pointer-events-auto min-w-[220px] max-w-[320px] border ${tone} rounded-xl px-3 py-2 text-xs font-bold shadow-lg`;
+    toast.textContent = message;
+    stack.appendChild(toast);
+    setTimeout(() => {
+        toast.remove();
+    }, 2600);
+}
 
 /* -------------------------------------------------------------------------- */
 /*                                  HELPERS                                   */

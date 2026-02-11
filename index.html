@@ -57,6 +57,15 @@
       <button class="w-full text-left sidebar-item active" data-view="home" id="btnHome">
         <i class="fas fa-home"></i> Home
       </button>
+      <button class="w-full text-left sidebar-item" data-view="chat" id="btnChat">
+        <i class="fas fa-comments"></i> Chat
+      </button>
+      <button class="w-full text-left sidebar-item" data-view="social" id="btnFeed">
+        <i class="fas fa-bolt"></i> Feed
+      </button>
+      <button class="w-full text-left sidebar-item" data-view="profile" id="btnProfile">
+        <i class="fas fa-user"></i> Profile
+      </button>
       <button class="w-full text-left sidebar-item" data-special="recent" id="btnRecent">
         <i class="fas fa-history"></i> Recently Played
       </button>
@@ -358,8 +367,8 @@
   <script>
     // Initialize UI on load
     document.addEventListener('DOMContentLoaded', () => {
-      // Default view
-      switchView('home');
+      const view = new URLSearchParams(window.location.search).get('view');
+      if (!view) switchView('home');
     });
 
     function toggleSidebar() {
