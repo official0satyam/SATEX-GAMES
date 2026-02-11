@@ -217,6 +217,19 @@
     display: flex;
 }
 
+#chatLoginOverlay {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    display: none;
+    z-index: 7000;
+}
+
+#chatLoginOverlay.active {
+    display: flex;
+}
+
 .auth-form {
     background: #13131a;
     border: 1px solid rgba(255, 255, 255, 0.1);

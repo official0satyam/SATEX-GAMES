@@ -447,15 +447,19 @@ body {
 
 /* Login Overlay */
 #chatLoginOverlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
     background: rgba(5, 5, 7, 0.95);
     backdrop-filter: blur(5px);
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
     padding: 20px;
-    z-index: 100;
+    z-index: 7000;
+}
+
+#chatLoginOverlay.active {
+    display: flex;
 }
 
 /* Chat Tabs */

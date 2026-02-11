@@ -14,6 +14,7 @@ import {
     setDoc,
     getDoc,
     updateDoc,
+    deleteDoc,
     arrayUnion,
     arrayRemove,
     collection,
@@ -52,7 +53,14 @@ const State = {
     profile: null,
     friends: [],
     listeners: [], // Store unsubscribe functions
-    gameLibrary: [] // Cache for games.json
+    gameLibrary: [], // Cache for games.json
+    friendsUnsub: null,
+    requestsUnsub: null,
+    feedUnsub: null,
+    globalChatUnsub: null,
+    directChatUnsub: null,
+    onlineUsersUnsub: null,
+    activeDmTarget: null
 };
 
 /* -------------------------------------------------------------------------- */
@@ -69,6 +77,7 @@ export const AuthService = {
 
                 // Start Listeners
                 FriendService.listenToFriends();
+                FriendService.listenToOnlineUsers();
                 ChatService.listenToGlobalChat();
                 FeedService.listenToFeed();
 
@@ -111,11 +120,22 @@ export const AuthService = {
     },
 
     cleanup: () => {
+        if (State.friendsUnsub) { State.friendsUnsub(); State.friendsUnsub = null; }
+        if (State.requestsUnsub) { State.requestsUnsub(); State.requestsUnsub = null; }
+        if (State.feedUnsub) { State.feedUnsub(); State.feedUnsub = null; }
+        if (State.directChatUnsub) { State.directChatUnsub(); State.directChatUnsub = null; }
+        if (State.onlineUsersUnsub) { State.onlineUsersUnsub(); State.onlineUsersUnsub = null; }
+
         State.listeners.forEach(unsub => unsub());
         State.listeners = [];
         State.currentUser = null;
         State.profile = null;
         State.friends = [];
+        State.activeDmTarget = null;
+
+        window.dispatchEvent(new CustomEvent('friendsUpdated', { detail: [] }));
+        window.dispatchEvent(new CustomEvent('requestsUpdated', { detail: [] }));
+        window.dispatchEvent(new CustomEvent('onlineUsersUpdated', { detail: [] }));
     }
 };
 
@@ -195,38 +215,70 @@ export const FriendService = {
 
     sendRequest: async (targetUid) => {
         if (!State.currentUser) return;
+        if (targetUid === State.currentUser.uid) return;
         // Add to My Sent
         // Add to Their Received (Simplification: Just creating a 'requests' subcol on target)
         await setDoc(doc(db, `users/${targetUid}/requests/${State.currentUser.uid}`), {
             from: State.currentUser.uid,
-            username: State.profile.username,
-            avatar: State.profile.avatar,
+            username: State.profile?.username || State.currentUser.displayName || "Player",
+            avatar: State.profile?.avatar || "",
             timestamp: serverTimestamp(),
             status: 'pending'
         });
     },
 
     listenToFriends: () => {
-        if (!State.currentUser) return;
+        if (!State.currentUser) {
+            window.dispatchEvent(new CustomEvent('friendsUpdated', { detail: [] }));
+            window.dispatchEvent(new CustomEvent('requestsUpdated', { detail: [] }));
+            return;
+        }
+
+        if (State.friendsUnsub) State.friendsUnsub();
+        if (State.requestsUnsub) State.requestsUnsub();
+
         const q = query(collection(db, `users/${State.currentUser.uid}/friends`));
-        const unsub = onSnapshot(q, (snapshot) => {
+        State.friendsUnsub = onSnapshot(q, (snapshot) => {
             State.friends = snapshot.docs.map(d => d.data());
             window.dispatchEvent(new CustomEvent('friendsUpdated', { detail: State.friends }));
         });
-        State.listeners.push(unsub);
 
         // Also listen to Requests
         const reqQ = query(collection(db, `users/${State.currentUser.uid}/requests`));
-        const reqUnsub = onSnapshot(reqQ, (snapshot) => {
+        State.requestsUnsub = onSnapshot(reqQ, (snapshot) => {
             const requests = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             window.dispatchEvent(new CustomEvent('requestsUpdated', { detail: requests }));
         });
-        State.listeners.push(reqUnsub);
+    },
+
+    listenToOnlineUsers: () => {
+        if (!State.onlineUsersUnsub && !State.currentUser) return;
+
+        if (State.onlineUsersUnsub) {
+            State.onlineUsersUnsub();
+            State.onlineUsersUnsub = null;
+        }
+
+        if (!State.currentUser) {
+            window.dispatchEvent(new CustomEvent('onlineUsersUpdated', { detail: [] }));
+            return;
+        }
+
+        const q = query(
+            collection(db, "users"),
+            where("status.state", "==", "online"),
+            limit(50)
+        );
+        State.onlineUsersUnsub = onSnapshot(q, (snapshot) => {
+            const users = snapshot.docs
+                .map(d => d.data())
+                .filter(u => u.uid !== State.currentUser.uid);
+            window.dispatchEvent(new CustomEvent('onlineUsersUpdated', { detail: users }));
+        });
     },
 
     acceptRequest: async (request) => {
         if (!State.currentUser) return;
-        const batch = db.batch(); // unused via modular, doing parallel
 
         try {
             // 1. Add to My Friends
@@ -241,14 +293,14 @@ export const FriendService = {
             // 2. Add Me to Their Friends
             await setDoc(doc(db, `users/${request.from}/friends/${State.currentUser.uid}`), {
                 uid: State.currentUser.uid,
-                username: State.profile.username,
-                avatar: State.profile.avatar,
+                username: State.profile?.username || State.currentUser.displayName || "Player",
+                avatar: State.profile?.avatar || "",
                 status: 'accepted',
                 timestamp: serverTimestamp()
             });
 
             // 3. Delete Request
-            await setDoc(doc(db, `users/${State.currentUser.uid}/requests/${request.from}`), { status: 'accepted' }); // Mark or delete
+            await deleteDoc(doc(db, `users/${State.currentUser.uid}/requests/${request.from}`));
 
             // Feed Post
             FeedService.postActivity('friend', { friendId: request.from, friendName: request.username });
@@ -270,8 +322,8 @@ export const FeedService = {
                 type,
                 user: {
                     uid: State.currentUser.uid,
-                    username: State.profile.username,
-                    avatar: State.profile.avatar
+                    username: State.profile?.username || State.currentUser.displayName || "Player",
+                    avatar: State.profile?.avatar || ""
                 },
                 data,
                 timestamp: serverTimestamp(),
@@ -282,12 +334,12 @@ export const FeedService = {
     },
 
     listenToFeed: () => {
+        if (State.feedUnsub) State.feedUnsub();
         const q = query(collection(db, "social_feed"), orderBy("timestamp", "desc"), limit(20));
-        const unsub = onSnapshot(q, (snapshot) => {
+        State.feedUnsub = onSnapshot(q, (snapshot) => {
             const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             window.dispatchEvent(new CustomEvent('feedUpdated', { detail: posts }));
         });
-        State.listeners.push(unsub);
     }
 };
 
@@ -296,12 +348,12 @@ export const FeedService = {
 /* -------------------------------------------------------------------------- */
 export const ChatService = {
     listenToGlobalChat: () => {
+        if (State.globalChatUnsub) return;
         const q = query(collection(db, "global_chat_v2"), orderBy("timestamp", "desc"), limit(50));
-        const unsub = onSnapshot(q, (snapshot) => {
-            const msgs = snapshot.docs.map(d => d.data()).reverse();
+        State.globalChatUnsub = onSnapshot(q, (snapshot) => {
+            const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).reverse();
             window.dispatchEvent(new CustomEvent('globalChatUpdated', { detail: msgs }));
         });
-        State.listeners.push(unsub);
     },
 
     sendGlobalMessage: async (text) => {
@@ -309,10 +361,60 @@ export const ChatService = {
         await addDoc(collection(db, "global_chat_v2"), {
             text,
             uid: State.currentUser.uid,
-            user: State.profile.username,
-            avatar: State.profile.avatar,
+            user: State.profile?.username || State.currentUser.displayName || "Player",
+            avatar: State.profile?.avatar || "",
             timestamp: serverTimestamp(),
             verified: false // Admin badge hook
+        });
+    },
+
+    listenToDirectChat: (targetUid) => {
+        if (!State.currentUser || !targetUid) return;
+        const ids = [State.currentUser.uid, targetUid].sort();
+        const threadId = `${ids[0]}_${ids[1]}`;
+
+        if (State.directChatUnsub && State.activeDmTarget === targetUid) return;
+        if (State.directChatUnsub) {
+            State.directChatUnsub();
+            State.directChatUnsub = null;
+        }
+
+        State.activeDmTarget = targetUid;
+        const q = query(
+            collection(db, `dm_threads/${threadId}/messages`),
+            orderBy("timestamp", "asc"),
+            limit(200)
+        );
+        State.directChatUnsub = onSnapshot(q, (snapshot) => {
+            const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            window.dispatchEvent(new CustomEvent('directChatUpdated', {
+                detail: { targetUid, messages: msgs }
+            }));
+        });
+    },
+
+    sendDirectMessage: async (targetUid, text) => {
+        if (!State.currentUser || !targetUid || !text.trim()) return;
+        const ids = [State.currentUser.uid, targetUid].sort();
+        const threadId = `${ids[0]}_${ids[1]}`;
+        const threadRef = doc(db, "dm_threads", threadId);
+
+        await setDoc(threadRef, {
+            participants: ids,
+            updatedAt: serverTimestamp(),
+            lastMessage: {
+                text: text.trim(),
+                from: State.currentUser.uid,
+                at: serverTimestamp()
+            }
+        }, { merge: true });
+
+        await addDoc(collection(db, `dm_threads/${threadId}/messages`), {
+            text: text.trim(),
+            uid: State.currentUser.uid,
+            user: State.profile?.username || State.currentUser.displayName || "Player",
+            avatar: State.profile?.avatar || "",
+            timestamp: serverTimestamp()
         });
     }
 };

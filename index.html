@@ -261,41 +261,39 @@
       </div>
     </div>
 
-    <!-- Login Overlay -->
-    <div id="chatLoginOverlay" class="chat-login-overlay">
-      <div class="auth-form">
-        <div
-          class="w-12 h-12 bg-purple-600/20 rounded-xl flex items-center justify-center mx-auto mb-4 border border-purple-500/20">
-          <i class="fas fa-user-astronaut text-purple-400 text-xl"></i>
-        </div>
-        <h3 class="font-black text-xl mb-6 text-white text-center">PLAYER LOGIN</h3>
+  </div>
 
-        <!-- Login Form -->
-        <!-- Login Form -->
-        <div id="loginForm">
-          <input type="email" id="emailInput" placeholder="Email" class="auth-input">
-          <input type="password" id="passwordInput" placeholder="Password" class="auth-input">
-          <button onclick="window.handleLogin()" class="auth-btn">LOGIN</button>
-
-          <div class="text-center mt-3">
-            <span class="auth-switch" onclick="toggleAuthMode('signup')">New here? Create Account</span>
-          </div>
-        </div>
-
-        <!-- Signup Form -->
-        <div id="signupForm" class="hidden">
-          <input type="text" id="signupUsername" placeholder="Choose Username" class="auth-input">
-          <input type="email" id="signupEmail" placeholder="Email" class="auth-input">
-          <input type="password" id="signupPassword" placeholder="Password" class="auth-input">
-          <button onclick="window.handleSignup()" class="auth-btn">CREATE ACCOUNT</button>
-
-          <div class="text-center mt-3">
-            <span class="auth-switch" onclick="toggleAuthMode('login')">Already have an account? Login</span>
-          </div>
-        </div>
-
-        <div id="authError" class="text-red-500 text-xs text-center mt-2 font-bold min-h-[20px]"></div>
+  <!-- Login Overlay -->
+  <div id="chatLoginOverlay" class="chat-login-overlay">
+    <div class="auth-form">
+      <div
+        class="w-12 h-12 bg-purple-600/20 rounded-xl flex items-center justify-center mx-auto mb-4 border border-purple-500/20">
+        <i class="fas fa-user-astronaut text-purple-400 text-xl"></i>
       </div>
+      <h3 class="font-black text-xl mb-6 text-white text-center">PLAYER LOGIN</h3>
+
+      <div id="loginForm">
+        <input type="email" id="emailInput" placeholder="Email" class="auth-input">
+        <input type="password" id="passwordInput" placeholder="Password" class="auth-input">
+        <button onclick="window.handleLogin()" class="auth-btn">LOGIN</button>
+
+        <div class="text-center mt-3">
+          <span class="auth-switch" onclick="toggleAuthMode('signup')">New here? Create Account</span>
+        </div>
+      </div>
+
+      <div id="signupForm" class="hidden">
+        <input type="text" id="signupUsername" placeholder="Choose Username" class="auth-input">
+        <input type="email" id="signupEmail" placeholder="Email" class="auth-input">
+        <input type="password" id="signupPassword" placeholder="Password" class="auth-input">
+        <button onclick="window.handleSignup()" class="auth-btn">CREATE ACCOUNT</button>
+
+        <div class="text-center mt-3">
+          <span class="auth-switch" onclick="toggleAuthMode('login')">Already have an account? Login</span>
+        </div>
+      </div>
+
+      <div id="authError" class="text-red-500 text-xs text-center mt-2 font-bold min-h-[20px]"></div>
     </div>
   </div>
 
