@@ -18,7 +18,11 @@ window.chatState = {
     activeDmFriend: null,
     mobileListOpen: false,
     sentRequests: {},
-    feedComposerImageUrl: ''
+    feedComposerFiles: [],
+    profileUpload: {
+        avatarDataUrl: null,
+        coverDataUrl: null
+    }
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -59,6 +63,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.chatState.activeDmFriend = null;
             window.chatState.directMessages = [];
             window.chatState.sentRequests = {};
+            window.chatState.feedComposerFiles = [];
+            window.chatState.profileUpload = { avatarDataUrl: null, coverDataUrl: null };
             cleanupFeedCommentListeners();
             window.chatState.feedComments = {};
             window.chatState.expandedComments = {};
@@ -402,9 +408,14 @@ function renderSocialFeed(isUpdate = false) {
                         <h2 class="text-2xl font-black text-white mb-6">Activity Feed</h2>
                         <div class="bg-white/5 border border-white/10 rounded-2xl p-4 mb-6">
                             <textarea id="statusPostInput" maxlength="260" placeholder="Share a status update..." class="w-full h-24 bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white resize-none focus:outline-none focus:border-purple-500/50"></textarea>
-                            <input id="statusImageInput" type="url" placeholder="Optional image URL (screenshot, achievement, etc.)" class="w-full mt-3 bg-black/20 border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-purple-500/50">
+                            <label for="statusImageFiles" class="mt-3 flex items-center justify-center gap-2 w-full border border-dashed border-white/20 rounded-xl px-4 py-3 text-xs font-bold text-gray-300 hover:border-purple-500/50 cursor-pointer transition-all">
+                                <i class="fas fa-upload"></i>
+                                Upload Image(s)
+                            </label>
+                            <input id="statusImageFiles" type="file" accept="image/*" multiple class="hidden" onchange="window.handleFeedImageSelection(event)">
+                            <div id="statusImagePreview" class="hidden mt-3 grid grid-cols-3 gap-2"></div>
                             <div class="flex items-center justify-between mt-3">
-                                <span class="text-[11px] text-gray-500">Text + optional image</span>
+                                <span id="statusImageMeta" class="text-[11px] text-gray-500">Write text or upload images</span>
                                 <button onclick="window.publishStatusPost()" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white">
                                     Post Update
                                 </button>
@@ -418,6 +429,7 @@ function renderSocialFeed(isUpdate = false) {
     }
 
     window.Services?.feed?.listenToFeed?.();
+    renderFeedComposerPreview();
     renderFeedPosts();
 }
 
@@ -1008,22 +1020,58 @@ function renderMessage(msg, container) {
 
 window.publishStatusPost = async function () {
     const input = document.getElementById('statusPostInput');
-    const imageInput = document.getElementById('statusImageInput');
+    const imageInput = document.getElementById('statusImageFiles');
     if (!input) return;
     const text = input.value.trim();
-    const imageUrl = (imageInput?.value || '').trim();
-    if (!text && !imageUrl) {
-        showToast("Write text or add an image URL", "error");
+    const files = window.chatState.feedComposerFiles || [];
+    if (!text && !files.length) {
+        showToast("Write text or upload at least one image", "error");
         return;
     }
 
     try {
-        await window.Services.feed.postStatus({ text, imageUrl });
+        if (files.length) {
+            for (let index = 0; index < files.length; index += 1) {
+                const payload = {
+                    text: index === 0 ? text : '',
+                    imageDataUrl: files[index].dataUrl
+                };
+                await window.Services.feed.postStatus(payload);
+            }
+        } else {
+            await window.Services.feed.postStatus({ text });
+        }
+
         input.value = '';
         if (imageInput) imageInput.value = '';
-        showToast("Status posted", "success");
+        window.chatState.feedComposerFiles = [];
+        renderFeedComposerPreview();
+        const postedCount = files.length || 1;
+        showToast(postedCount > 1 ? `${postedCount} posts published` : "Status posted", "success");
     } catch (e) {
         showToast(e.message || "Unable to post status", "error");
+    }
+};
+
+window.handleFeedImageSelection = async function (event) {
+    const selectedFiles = Array.from(event?.target?.files || []).filter(file => file.type.startsWith('image/'));
+    if (!selectedFiles.length) {
+        window.chatState.feedComposerFiles = [];
+        renderFeedComposerPreview();
+        return;
+    }
+
+    try {
+        const uploads = await Promise.all(selectedFiles.map(async (file) => ({
+            name: file.name,
+            dataUrl: await fileToDataUrl(file)
+        })));
+        window.chatState.feedComposerFiles = uploads;
+        renderFeedComposerPreview();
+    } catch (e) {
+        window.chatState.feedComposerFiles = [];
+        renderFeedComposerPreview();
+        showToast("Could not read selected image(s)", "error");
     }
 };
 
@@ -1082,6 +1130,7 @@ window.toggleFavoriteGame = async function (gameId) {
 window.openEditProfileModal = function () {
     const userData = window.currentUserData || {};
     let modal = document.getElementById('editProfileModal');
+    window.chatState.profileUpload = { avatarDataUrl: null, coverDataUrl: null };
 
     if (!modal) {
         modal = document.createElement('div');
@@ -1093,12 +1142,26 @@ window.openEditProfileModal = function () {
                     <h3 class="text-lg font-black text-white">Edit Profile</h3>
                     <button onclick="window.closeEditProfileModal()" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
                 </div>
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                        <div class="text-xs text-gray-400 font-bold mb-2">Avatar</div>
+                        <img id="editProfileAvatarPreview" src="assets/icons/logo.jpg" alt="avatar preview" class="w-full h-24 rounded-xl object-cover border border-white/10">
+                        <label for="editProfileAvatarFile" class="mt-2 inline-flex items-center justify-center gap-2 w-full border border-dashed border-white/20 rounded-lg px-3 py-2 text-[11px] font-bold text-gray-300 hover:border-purple-500/50 cursor-pointer transition-all">
+                            <i class="fas fa-image"></i> Upload
+                        </label>
+                        <input id="editProfileAvatarFile" type="file" accept="image/*" class="hidden" onchange="window.handleProfileImageUpload(event, 'avatar')">
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400 font-bold mb-2">Cover</div>
+                        <img id="editProfileCoverPreview" src="assets/icons/logo.jpg" alt="cover preview" class="w-full h-24 rounded-xl object-cover border border-white/10">
+                        <label for="editProfileCoverFile" class="mt-2 inline-flex items-center justify-center gap-2 w-full border border-dashed border-white/20 rounded-lg px-3 py-2 text-[11px] font-bold text-gray-300 hover:border-purple-500/50 cursor-pointer transition-all">
+                            <i class="fas fa-panorama"></i> Upload
+                        </label>
+                        <input id="editProfileCoverFile" type="file" accept="image/*" class="hidden" onchange="window.handleProfileImageUpload(event, 'cover')">
+                    </div>
+                </div>
                 <label class="text-xs text-gray-400 font-bold">Username</label>
                 <input id="editProfileUsername" type="text" class="w-full mt-1 mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm">
-                <label class="text-xs text-gray-400 font-bold">Avatar URL</label>
-                <input id="editProfileAvatar" type="text" class="w-full mt-1 mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm">
-                <label class="text-xs text-gray-400 font-bold">Cover Photo URL</label>
-                <input id="editProfileCoverPhoto" type="text" class="w-full mt-1 mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm">
                 <label class="text-xs text-gray-400 font-bold">Bio</label>
                 <textarea id="editProfileBio" maxlength="180" class="w-full mt-1 mb-4 h-24 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm resize-none"></textarea>
                 <div class="flex gap-2">
@@ -1114,9 +1177,15 @@ window.openEditProfileModal = function () {
     }
 
     document.getElementById('editProfileUsername').value = userData.username || '';
-    document.getElementById('editProfileAvatar').value = userData.avatar || '';
-    document.getElementById('editProfileCoverPhoto').value = userData.cover_photo || '';
     document.getElementById('editProfileBio').value = userData.bio || '';
+    const avatarPreview = document.getElementById('editProfileAvatarPreview');
+    const coverPreview = document.getElementById('editProfileCoverPreview');
+    if (avatarPreview) avatarPreview.src = userData.avatar || 'assets/icons/logo.jpg';
+    if (coverPreview) coverPreview.src = userData.cover_photo || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop';
+    const avatarFile = document.getElementById('editProfileAvatarFile');
+    const coverFile = document.getElementById('editProfileCoverFile');
+    if (avatarFile) avatarFile.value = '';
+    if (coverFile) coverFile.value = '';
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 };
@@ -1126,21 +1195,46 @@ window.closeEditProfileModal = function () {
     if (!modal) return;
     modal.classList.remove('flex');
     modal.classList.add('hidden');
+    window.chatState.profileUpload = { avatarDataUrl: null, coverDataUrl: null };
 };
 
 window.saveProfileEdits = async function () {
     const username = (document.getElementById('editProfileUsername')?.value || '').trim();
-    const avatar = (document.getElementById('editProfileAvatar')?.value || '').trim();
-    const coverPhoto = (document.getElementById('editProfileCoverPhoto')?.value || '').trim();
     const bio = (document.getElementById('editProfileBio')?.value || '').trim();
+    const avatarDataUrl = window.chatState.profileUpload?.avatarDataUrl || null;
+    const coverDataUrl = window.chatState.profileUpload?.coverDataUrl || null;
 
     try {
-        await window.Services.user.updateProfileFields({ username, avatar, coverPhoto, bio });
+        const tasks = [window.Services.user.updateProfileFields({ username, bio })];
+        if (avatarDataUrl) tasks.push(window.Services.user.uploadAvatarDataUrl(avatarDataUrl));
+        if (coverDataUrl) tasks.push(window.Services.user.uploadCoverDataUrl(coverDataUrl));
+        await Promise.all(tasks);
         window.closeEditProfileModal();
+        window.chatState.profileUpload = { avatarDataUrl: null, coverDataUrl: null };
         showToast("Profile updated successfully", "success");
         renderProfile();
     } catch (e) {
         showToast(e.message || "Unable to save profile", "error");
+    }
+};
+
+window.handleProfileImageUpload = async function (event, kind) {
+    const file = event?.target?.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    try {
+        const dataUrl = await fileToDataUrl(file);
+        if (kind === 'cover') {
+            window.chatState.profileUpload.coverDataUrl = dataUrl;
+            const coverPreview = document.getElementById('editProfileCoverPreview');
+            if (coverPreview) coverPreview.src = dataUrl;
+        } else {
+            window.chatState.profileUpload.avatarDataUrl = dataUrl;
+            const avatarPreview = document.getElementById('editProfileAvatarPreview');
+            if (avatarPreview) avatarPreview.src = dataUrl;
+        }
+    } catch (e) {
+        showToast("Image upload preview failed", "error");
     }
 };
 
@@ -1328,6 +1422,51 @@ function markFriendRequestSent(targetUid) {
         btn.textContent = 'Sent';
         btn.classList.remove('bg-purple-600', 'hover:bg-purple-500', 'text-white');
         btn.classList.add('bg-gray-600', 'text-gray-200', 'cursor-not-allowed');
+    });
+}
+
+function renderFeedComposerPreview() {
+    const preview = document.getElementById('statusImagePreview');
+    const meta = document.getElementById('statusImageMeta');
+    if (!preview || !meta) return;
+
+    const files = window.chatState.feedComposerFiles || [];
+    if (!files.length) {
+        preview.classList.add('hidden');
+        preview.innerHTML = '';
+        meta.textContent = 'Write text or upload images';
+        return;
+    }
+
+    preview.classList.remove('hidden');
+    preview.innerHTML = files.map((file, index) => `
+        <div class="relative border border-white/10 rounded-lg overflow-hidden">
+            <img src="${file.dataUrl}" alt="preview ${index + 1}" class="w-full h-20 object-cover">
+            <button onclick="window.removeFeedComposerImage(${index})" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] flex items-center justify-center">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `).join('');
+    meta.textContent = `${files.length} image${files.length > 1 ? 's' : ''} selected`;
+}
+
+window.removeFeedComposerImage = function (index) {
+    const files = window.chatState.feedComposerFiles || [];
+    if (index < 0 || index >= files.length) return;
+    files.splice(index, 1);
+    window.chatState.feedComposerFiles = files;
+
+    const fileInput = document.getElementById('statusImageFiles');
+    if (!files.length && fileInput) fileInput.value = '';
+    renderFeedComposerPreview();
+};
+
+function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('File read failed'));
+        reader.readAsDataURL(file);
     });
 }
 
