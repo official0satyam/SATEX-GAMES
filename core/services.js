@@ -61,6 +61,7 @@ const State = {
     currentUser: null,
     profile: null,
     friends: [],
+    requests: [],
     listeners: [], // Store unsubscribe functions
     gameLibrary: [], // Cache for games.json
     friendsUnsub: null,
@@ -77,6 +78,36 @@ const State = {
 const MAX_BIO_LENGTH = 180;
 const MAX_STATUS_LENGTH = 260;
 
+function emitServiceError(scope, error) {
+    window.dispatchEvent(new CustomEvent('serviceError', {
+        detail: {
+            scope,
+            code: error?.code || null,
+            message: mapFirebaseError(error, error?.message || 'Unknown error')
+        }
+    }));
+}
+
+function mapFirebaseError(error, fallbackMessage) {
+    const code = String(error?.code || '');
+    if (code.includes('quota-exceeded') || code.includes('resource-exhausted')) {
+        return 'Firebase quota exceeded. Please upgrade plan or wait for quota reset.';
+    }
+    if (code.includes('permission-denied') || code.includes('unauthorized')) {
+        return 'Permission denied by Firebase rules. Please update Firestore/Storage rules.';
+    }
+    if (code.includes('failed-precondition')) {
+        return 'A required Firestore index is missing. Create the index from Firebase console.';
+    }
+    if (code.includes('bucket-not-found')) {
+        return 'Firebase Storage bucket is not configured. Enable Storage in Firebase console.';
+    }
+    if (code.includes('unavailable')) {
+        return 'Firebase service is temporarily unavailable. Try again in a moment.';
+    }
+    return fallbackMessage || error?.message || 'Operation failed';
+}
+
 function buildStoragePath(folder, ext = "jpg") {
     const uid = State.currentUser?.uid || "anonymous";
     const token = Math.random().toString(36).slice(2, 10);
@@ -90,8 +121,12 @@ async function uploadImageDataUrl(dataUrl, folder) {
     }
     const ext = safeData.startsWith("data:image/png") ? "png" : "jpg";
     const fileRef = storageRef(storage, buildStoragePath(folder, ext));
-    await uploadString(fileRef, safeData, "data_url");
-    return getDownloadURL(fileRef);
+    try {
+        await uploadString(fileRef, safeData, "data_url");
+        return getDownloadURL(fileRef);
+    } catch (error) {
+        throw new Error(mapFirebaseError(error, "Image upload failed"));
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -106,12 +141,8 @@ export const AuthService = {
                 await UserService.syncProfile(user);
                 await UserService.fetchProfile(user.uid);
 
-                // Start Listeners
+                // Start lightweight core listeners. Heavy listeners are started by view.
                 FriendService.listenToFriends();
-                FriendService.listenToOnlineUsers();
-                ChatService.listenToGlobalChat();
-                ChatService.listenToDmThreads();
-                FeedService.listenToFeed();
 
                 // Presence
                 await UserService.updateStatus('online');
@@ -178,6 +209,7 @@ export const AuthService = {
         State.currentUser = null;
         State.profile = null;
         State.friends = [];
+        State.requests = [];
         State.activeDmTarget = null;
 
         window.dispatchEvent(new CustomEvent('friendsUpdated', { detail: [] }));
@@ -239,6 +271,13 @@ export const UserService = {
             State.profile = snap.data();
             window.dispatchEvent(new CustomEvent('profileUpdated', { detail: State.profile }));
         }
+    },
+
+    fetchUserByUid: async (uid) => {
+        if (!uid) return null;
+        const snap = await getDoc(doc(db, "users", uid));
+        if (!snap.exists()) return null;
+        return { uid, ...snap.data() };
     },
 
     updateStatus: async (state, game = null) => {
@@ -427,13 +466,50 @@ export const FriendService = {
         await Promise.all([deleteDoc(myRef), deleteDoc(theirRef)]);
     },
 
+    getRelationship: async (targetUid) => {
+        if (!State.currentUser || !targetUid) {
+            return { isSelf: false, isFriend: false, outgoingRequest: false, incomingRequest: false };
+        }
+        if (targetUid === State.currentUser.uid) {
+            return { isSelf: true, isFriend: false, outgoingRequest: false, incomingRequest: false };
+        }
+
+        // Prefer local listener state to avoid unnecessary reads.
+        let isFriend = State.friends.some(f => f.uid === targetUid);
+        let incomingRequest = State.requests.some(r => (r.from || r.id) === targetUid);
+
+        if (!State.friendsUnsub) {
+            const friendSnap = await getDoc(doc(db, `users/${State.currentUser.uid}/friends/${targetUid}`));
+            isFriend = friendSnap.exists();
+        }
+        if (!State.requestsUnsub) {
+            const incomingSnap = await getDoc(doc(db, `users/${State.currentUser.uid}/requests/${targetUid}`));
+            incomingRequest = incomingSnap.exists();
+        }
+
+        if (isFriend || incomingRequest) {
+            return {
+                isSelf: false,
+                isFriend,
+                outgoingRequest: false,
+                incomingRequest
+            };
+        }
+
+        const outgoingSnap = await getDoc(doc(db, `users/${targetUid}/requests/${State.currentUser.uid}`));
+        return { isSelf: false, isFriend, outgoingRequest: outgoingSnap.exists(), incomingRequest };
+    },
+
     listenToFriends: () => {
         if (!State.currentUser) {
+            State.friends = [];
+            State.requests = [];
             window.dispatchEvent(new CustomEvent('friendsUpdated', { detail: [] }));
             window.dispatchEvent(new CustomEvent('requestsUpdated', { detail: [] }));
             return;
         }
 
+        if (State.friendsUnsub && State.requestsUnsub) return;
         if (State.friendsUnsub) State.friendsUnsub();
         if (State.requestsUnsub) State.requestsUnsub();
 
@@ -447,27 +523,26 @@ export const FriendService = {
         const reqQ = query(collection(db, `users/${State.currentUser.uid}/requests`));
         State.requestsUnsub = onSnapshot(reqQ, (snapshot) => {
             const requests = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            State.requests = requests;
             window.dispatchEvent(new CustomEvent('requestsUpdated', { detail: requests }));
         });
     },
 
     listenToOnlineUsers: () => {
-        if (!State.onlineUsersUnsub && !State.currentUser) return;
-
-        if (State.onlineUsersUnsub) {
-            State.onlineUsersUnsub();
-            State.onlineUsersUnsub = null;
-        }
-
         if (!State.currentUser) {
+            if (State.onlineUsersUnsub) {
+                State.onlineUsersUnsub();
+                State.onlineUsersUnsub = null;
+            }
             window.dispatchEvent(new CustomEvent('onlineUsersUpdated', { detail: [] }));
             return;
         }
+        if (State.onlineUsersUnsub) return;
 
         const q = query(
             collection(db, "users"),
             where("status.state", "==", "online"),
-            limit(50)
+            limit(30)
         );
         State.onlineUsersUnsub = onSnapshot(q, (snapshot) => {
             const users = snapshot.docs
@@ -475,6 +550,14 @@ export const FriendService = {
                 .filter(u => u.uid !== State.currentUser.uid);
             window.dispatchEvent(new CustomEvent('onlineUsersUpdated', { detail: users }));
         });
+    },
+
+    stopOnlineUsers: () => {
+        if (State.onlineUsersUnsub) {
+            State.onlineUsersUnsub();
+            State.onlineUsersUnsub = null;
+        }
+        window.dispatchEvent(new CustomEvent('onlineUsersUpdated', { detail: [] }));
     },
 
     acceptRequest: async (request) => {
@@ -560,11 +643,23 @@ export const FeedService = {
         if (!safeText && !imageUrl) {
             throw new Error("Post must include text or image");
         }
-
-        await FeedService.postActivity("status", {
-            text: safeText,
-            imageUrl
-        });
+        try {
+            await addDoc(collection(db, "posts"), {
+                type: "status",
+                user: {
+                    uid: State.currentUser.uid,
+                    username: State.profile?.username || State.currentUser.displayName || "Player",
+                    display_name: State.profile?.display_name || State.profile?.username || State.currentUser.displayName || "Player",
+                    avatar: State.profile?.avatar || ""
+                },
+                data: { text: safeText, imageUrl },
+                timestamp: serverTimestamp(),
+                likes: 0,
+                comments: 0
+            });
+        } catch (error) {
+            throw new Error(mapFirebaseError(error, "Failed to publish status"));
+        }
     },
 
     uploadPostImageDataUrl: async (dataUrl) => {
@@ -633,12 +728,26 @@ export const FeedService = {
     },
 
     listenToFeed: () => {
-        if (State.feedUnsub) State.feedUnsub();
-        const q = query(collection(db, "posts"), orderBy("timestamp", "desc"), limit(20));
-        State.feedUnsub = onSnapshot(q, (snapshot) => {
-            const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            window.dispatchEvent(new CustomEvent('feedUpdated', { detail: posts }));
-        });
+        if (State.feedUnsub) return;
+        const q = query(collection(db, "posts"), orderBy("timestamp", "desc"), limit(12));
+        State.feedUnsub = onSnapshot(
+            q,
+            (snapshot) => {
+                const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                window.dispatchEvent(new CustomEvent('feedUpdated', { detail: posts }));
+            },
+            (error) => {
+                console.error("Feed listener error", error);
+                emitServiceError('feed', error);
+            }
+        );
+    },
+
+    stopFeed: () => {
+        if (State.feedUnsub) {
+            State.feedUnsub();
+            State.feedUnsub = null;
+        }
     }
 };
 
@@ -648,11 +757,18 @@ export const FeedService = {
 export const ChatService = {
     listenToGlobalChat: () => {
         if (State.globalChatUnsub) return;
-        const q = query(collection(db, "global_chat_v2"), orderBy("timestamp", "desc"), limit(50));
-        State.globalChatUnsub = onSnapshot(q, (snapshot) => {
-            const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).reverse();
-            window.dispatchEvent(new CustomEvent('globalChatUpdated', { detail: msgs }));
-        });
+        const q = query(collection(db, "global_chat_v2"), orderBy("timestamp", "desc"), limit(30));
+        State.globalChatUnsub = onSnapshot(
+            q,
+            (snapshot) => {
+                const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).reverse();
+                window.dispatchEvent(new CustomEvent('globalChatUpdated', { detail: msgs }));
+            },
+            (error) => {
+                console.error("Global chat listener error", error);
+                emitServiceError('global_chat', error);
+            }
+        );
     },
 
     listenToDmThreads: () => {
@@ -660,10 +776,7 @@ export const ChatService = {
             window.dispatchEvent(new CustomEvent('dmThreadsUpdated', { detail: [] }));
             return;
         }
-        if (State.dmThreadsUnsub) {
-            State.dmThreadsUnsub();
-            State.dmThreadsUnsub = null;
-        }
+        if (State.dmThreadsUnsub) return;
 
         const buildThreads = (snapshot) => {
             const threads = snapshot.docs.map(d => {
@@ -684,21 +797,43 @@ export const ChatService = {
             collection(db, "chats"),
             where("participants", "array-contains", State.currentUser.uid),
             orderBy("updatedAt", "desc"),
-            limit(50)
+            limit(30)
         );
         State.dmThreadsUnsub = onSnapshot(
             orderedQ,
             buildThreads,
-            () => {
+            (error) => {
                 const fallbackQ = query(
                     collection(db, "chats"),
                     where("participants", "array-contains", State.currentUser.uid),
-                    limit(50)
+                    limit(30)
                 );
                 if (State.dmThreadsUnsub) State.dmThreadsUnsub();
-                State.dmThreadsUnsub = onSnapshot(fallbackQ, buildThreads);
+                State.dmThreadsUnsub = onSnapshot(
+                    fallbackQ,
+                    buildThreads,
+                    (fallbackError) => {
+                        console.error("DM thread listener error", fallbackError);
+                        emitServiceError('dm_threads', fallbackError || error);
+                    }
+                );
             }
         );
+    },
+
+    stopGlobalChat: () => {
+        if (State.globalChatUnsub) {
+            State.globalChatUnsub();
+            State.globalChatUnsub = null;
+        }
+    },
+
+    stopDmThreads: () => {
+        if (State.dmThreadsUnsub) {
+            State.dmThreadsUnsub();
+            State.dmThreadsUnsub = null;
+        }
+        window.dispatchEvent(new CustomEvent('dmThreadsUpdated', { detail: [] }));
     },
 
     sendGlobalMessage: async (text) => {
@@ -737,7 +872,7 @@ export const ChatService = {
         const q = query(
             collection(db, `chats/${chatId}/messages`),
             orderBy("timestamp", "asc"),
-            limit(200)
+            limit(100)
         );
         State.directChatUnsub = onSnapshot(q, (snapshot) => {
             const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -745,6 +880,14 @@ export const ChatService = {
                 detail: { targetUid, messages: msgs }
             }));
         });
+    },
+
+    stopDirectChat: () => {
+        if (State.directChatUnsub) {
+            State.directChatUnsub();
+            State.directChatUnsub = null;
+        }
+        State.activeDmTarget = null;
     },
 
     sendDirectMessage: async (targetUid, text) => {

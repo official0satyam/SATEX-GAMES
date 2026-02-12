@@ -5,6 +5,7 @@
 window.currentUserData = null;
 window.activeChatTab = 'global';
 window.chatState = {
+    currentView: 'home',
     globalMessages: [],
     directMessages: [],
     dmThreads: [],
@@ -16,6 +17,9 @@ window.chatState = {
     requests: [],
     onlineUsers: [],
     activeDmFriend: null,
+    viewedProfileUid: null,
+    viewedProfileData: null,
+    viewedProfileRelation: null,
     mobileListOpen: false,
     sentRequests: {},
     feedComposerFiles: [],
@@ -65,6 +69,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.chatState.sentRequests = {};
             window.chatState.feedComposerFiles = [];
             window.chatState.profileUpload = { avatarDataUrl: null, coverDataUrl: null };
+            window.chatState.viewedProfileUid = null;
+            window.chatState.viewedProfileData = null;
+            window.chatState.viewedProfileRelation = null;
             cleanupFeedCommentListeners();
             window.chatState.feedComments = {};
             window.chatState.expandedComments = {};
@@ -102,6 +109,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     window.addEventListener('friendsUpdated', (e) => {
         window.chatState.friends = e.detail || [];
+        if (window.chatState.viewedProfileUid && window.Services?.state?.currentUser && window.chatState.viewedProfileUid !== window.Services.state.currentUser.uid) {
+            loadViewedProfile(window.chatState.viewedProfileUid);
+        }
         if (isChatViewActive()) {
             renderChatListContent();
             updateChatTabStyles();
@@ -110,6 +120,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     window.addEventListener('requestsUpdated', (e) => {
         window.chatState.requests = e.detail || [];
+        if (window.chatState.viewedProfileUid && window.Services?.state?.currentUser && window.chatState.viewedProfileUid !== window.Services.state.currentUser.uid) {
+            loadViewedProfile(window.chatState.viewedProfileUid);
+        }
         if (isChatViewActive()) {
             renderChatListContent();
             updateChatTabStyles();
@@ -136,6 +149,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (isSocialViewActive()) {
             renderSocialFeed(true);
         }
+    });
+
+    window.addEventListener('serviceError', (e) => {
+        const detail = e.detail || {};
+        if (!detail.message) return;
+        showToast(detail.message, "error");
     });
 
     const overlay = document.getElementById('chatLoginOverlay');
@@ -173,6 +192,18 @@ window.switchView = function (viewName) {
 
 function _renderView(viewName, isPush) {
     console.log("[VIEW] Switching to:", viewName, "push:", isPush);
+    const previousView = window.chatState.currentView || 'home';
+
+    if (previousView === 'chat' && viewName !== 'chat') {
+        window.Services?.chat?.stopDirectChat?.();
+        window.Services?.chat?.stopDmThreads?.();
+        window.Services?.chat?.stopGlobalChat?.();
+        window.Services?.friend?.stopOnlineUsers?.();
+    }
+    if (previousView === 'social' && viewName !== 'social') {
+        cleanupFeedCommentListeners();
+        window.Services?.feed?.stopFeed?.();
+    }
 
     document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.sidebar-item').forEach(btn => btn.classList.remove('active'));
@@ -192,6 +223,7 @@ function _renderView(viewName, isPush) {
 
     if (!target) {
         document.getElementById('view-home')?.classList.add('active');
+        window.chatState.currentView = 'home';
         window.scrollTo(0, 0);
         return;
     }
@@ -201,6 +233,7 @@ function _renderView(viewName, isPush) {
     if (viewName === 'chat') renderChatInterface();
     if (viewName === 'social') renderSocialFeed();
 
+    window.chatState.currentView = viewName;
     window.scrollTo(0, 0);
 }
 
@@ -214,6 +247,121 @@ function isSocialViewActive() {
     return view === 'social' && document.getElementById('view-chat')?.classList.contains('active');
 }
 
+function isProfileViewActive() {
+    const view = new URLSearchParams(window.location.search).get('view') || 'home';
+    return view === 'profile' && document.getElementById('view-profile')?.classList.contains('active');
+}
+
+async function loadViewedProfile(uid) {
+    if (!uid) return;
+    try {
+        const profile = await window.Services?.user?.fetchUserByUid?.(uid);
+        if (!profile) {
+            window.chatState.viewedProfileData = null;
+            window.chatState.viewedProfileRelation = null;
+            if (isProfileViewActive()) renderProfile();
+            return;
+        }
+
+        window.chatState.viewedProfileData = profile;
+        if (window.Services?.state?.currentUser && uid !== window.Services.state.currentUser.uid) {
+            window.chatState.viewedProfileRelation = await window.Services.friend.getRelationship(uid);
+        } else {
+            window.chatState.viewedProfileRelation = null;
+        }
+        if (isProfileViewActive()) renderProfile();
+    } catch (e) {
+        console.error("[PROFILE] load viewed profile error:", e);
+        showToast(e.message || "Could not load profile", "error");
+    }
+}
+
+window.openUserProfile = async function (uid) {
+    if (!uid) return;
+    const currentUid = window.Services?.state?.currentUser?.uid || null;
+    if (currentUid && uid === currentUid) {
+        window.chatState.viewedProfileUid = null;
+        window.chatState.viewedProfileData = null;
+        window.chatState.viewedProfileRelation = null;
+        if (isProfileViewActive()) renderProfile();
+        else window.switchView('profile');
+        return;
+    }
+
+    window.chatState.viewedProfileUid = uid;
+    window.chatState.viewedProfileData = null;
+    window.chatState.viewedProfileRelation = null;
+    if (isProfileViewActive()) renderProfile();
+    else window.switchView('profile');
+    await loadViewedProfile(uid);
+};
+
+window.openMyProfile = function () {
+    window.chatState.viewedProfileUid = null;
+    window.chatState.viewedProfileData = null;
+    window.chatState.viewedProfileRelation = null;
+    if (isProfileViewActive()) renderProfile();
+    else window.switchView('profile');
+};
+
+window.sendFriendRequestFromViewedProfile = async function () {
+    const targetUid = window.chatState.viewedProfileUid;
+    if (!targetUid) return;
+    if (!window.Services?.state?.currentUser) {
+        window.openAuthOverlay();
+        return;
+    }
+    try {
+        await window.Services.friend.sendRequest(targetUid);
+        window.chatState.sentRequests[targetUid] = true;
+        window.chatState.viewedProfileRelation = {
+            ...(window.chatState.viewedProfileRelation || {}),
+            isSelf: false,
+            isFriend: false,
+            incomingRequest: false,
+            outgoingRequest: true
+        };
+        showToast("Friend request sent", "success");
+        renderProfile();
+    } catch (e) {
+        showToast(e.message || "Could not send request", "error");
+    }
+};
+
+window.acceptViewedProfileRequest = async function () {
+    const targetUid = window.chatState.viewedProfileUid;
+    if (!targetUid) return;
+    const request = (window.chatState.requests || []).find(r => r.from === targetUid || r.id === targetUid);
+    if (!request) {
+        showToast("No pending request from this player", "error");
+        return;
+    }
+
+    try {
+        await window.Services.friend.acceptRequest(request);
+        window.chatState.viewedProfileRelation = {
+            ...(window.chatState.viewedProfileRelation || {}),
+            isSelf: false,
+            isFriend: true,
+            incomingRequest: false,
+            outgoingRequest: false
+        };
+        showToast("Friend request accepted", "success");
+        renderProfile();
+    } catch (e) {
+        showToast(e.message || "Could not accept request", "error");
+    }
+};
+
+window.messageViewedProfile = function () {
+    const target = window.chatState.viewedProfileData;
+    if (!target?.uid) return;
+    const encodedName = encodeURIComponent(target.username || target.display_name || 'Player');
+    const encodedAvatar = encodeURIComponent(target.avatar || '');
+    window.startDm(target.uid, encodedName, encodedAvatar);
+    window.switchView('chat');
+};
+
 /* -------------------------------------------------------------------------- */
 /*                              PROFILE RENDERER                              */
 /* -------------------------------------------------------------------------- */
@@ -222,7 +370,81 @@ function renderProfile() {
     const container = document.getElementById('view-profile');
     if (!container) return;
 
-    if (!window.Services?.state?.currentUser) {
+    const currentUser = window.Services?.state?.currentUser || null;
+    const viewedUid = window.chatState.viewedProfileUid;
+    const isViewingOther = Boolean(viewedUid && (!currentUser || viewedUid !== currentUser.uid));
+
+    if (isViewingOther) {
+        const profile = window.chatState.viewedProfileData;
+        if (!profile) {
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
+                    <i class="fas fa-user-circle text-6xl text-gray-700 mb-4"></i>
+                    <h2 class="text-xl font-bold text-white mb-2">Loading profile...</h2>
+                    <p class="text-sm text-gray-500">Fetching player details.</p>
+                    <button onclick="window.openMyProfile()" class="mt-4 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold">Back</button>
+                </div>
+            `;
+            loadViewedProfile(viewedUid);
+            return;
+        }
+
+        const relation = window.chatState.viewedProfileRelation || {};
+        const relationPending = relation.outgoingRequest || window.chatState.sentRequests[viewedUid];
+        const primaryAction = !currentUser
+            ? `<button onclick="window.openAuthOverlay()" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold">Login to Add Friend</button>`
+            : relation.isFriend
+                ? `<button onclick="window.messageViewedProfile()" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold"><i class="fas fa-paper-plane mr-1"></i> Message</button>`
+                : relation.incomingRequest
+                    ? `<button onclick="window.acceptViewedProfileRequest()" class="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-bold"><i class="fas fa-check mr-1"></i> Accept Request</button>`
+                    : relationPending
+                        ? `<button class="px-4 py-2 rounded-lg bg-gray-700 text-gray-300 text-xs font-bold cursor-not-allowed" disabled>Request Sent</button>`
+                        : `<button onclick="window.sendFriendRequestFromViewedProfile()" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold"><i class="fas fa-user-plus mr-1"></i> Add Friend</button>`;
+
+        container.innerHTML = `
+            <div class="profile-header group relative">
+                <img src="${profile.cover_photo || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop'}" class="banner-img">
+                <div class="absolute top-4 right-4 flex gap-2">
+                    <button onclick="window.openMyProfile()" class="bg-white/15 hover:bg-white/25 text-white px-4 py-2 rounded-lg text-xs font-bold backdrop-blur-sm transition-all shadow-lg">
+                        <i class="fas fa-arrow-left mr-1"></i> BACK
+                    </button>
+                </div>
+                <div class="profile-avatar-container">
+                    <div class="avatar-ring">
+                        <img src="${profile.avatar || 'assets/icons/logo.jpg'}" class="avatar-img">
+                    </div>
+                    <div class="level-badge-large">LVL ${profile.level || 1}</div>
+                </div>
+            </div>
+            <div class="px-4 md:px-0 mt-16 md:mt-0 space-y-6">
+                <div>
+                    <h2 class="text-3xl font-black text-white tracking-tight">${escapeHtml(profile.display_name || profile.username || 'Player')}</h2>
+                    <p class="text-sm text-gray-400 mt-2 max-w-2xl">${escapeHtml(profile.bio || 'No bio yet.')}</p>
+                    <div class="flex flex-wrap gap-4 mt-3 text-sm text-gray-400">
+                        <span><b>${profile.xp || 0}</b> XP</span>
+                        <span><b>${profile.games_played || 0}</b> Games</span>
+                        <span class="inline-flex items-center gap-1">
+                            <span class="w-2 h-2 rounded-full ${profile.status?.state === 'online' ? 'bg-green-400' : profile.status?.state === 'away' ? 'bg-yellow-400' : 'bg-gray-500'}"></span>
+                            ${escapeHtml((profile.status?.state || 'offline').toUpperCase())}
+                        </span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    ${primaryAction}
+                    ${relation.isFriend ? `<span class="px-3 py-2 rounded-lg bg-green-700/40 text-green-200 text-xs font-bold">Friends</span>` : ''}
+                </div>
+                <div class="bg-white/5 border border-white/10 rounded-2xl p-4 mb-8">
+                    <h3 class="text-lg font-black text-white mb-3">Favorite Games</h3>
+                    ${Array.isArray(profile.favorite_games) && profile.favorite_games.length
+                ? `<div class="text-xs text-gray-300">${profile.favorite_games.length} saved game(s)</div>`
+                : `<div class="text-xs text-gray-500">No favorites visible yet.</div>`}
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    if (!currentUser) {
         container.innerHTML = `
             <div class="flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
                 <i class="fas fa-lock text-6xl text-gray-700 mb-6"></i>
@@ -378,7 +600,13 @@ function renderChatInterface() {
     }
 
     populateTrending();
+    window.Services?.friend?.listenToFriends?.();
+    window.Services?.friend?.listenToOnlineUsers?.();
+    window.Services?.chat?.listenToDmThreads?.();
     window.Services?.chat?.listenToGlobalChat?.();
+    if (window.chatState.activeDmFriend?.uid) {
+        window.Services?.chat?.listenToDirectChat?.(window.chatState.activeDmFriend.uid);
+    }
     renderChatListContent();
     updateMobileListVisibility();
     window.switchChatTab(window.activeChatTab || 'global', true);
@@ -574,7 +802,8 @@ function renderGlobalListPanel() {
                     <div class="flex items-center gap-2 bg-white/5 rounded-lg p-2">
                         <span class="w-2 h-2 rounded-full bg-green-400"></span>
                         <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover border border-white/10">
-                        <span class="text-xs text-gray-200 truncate">${escapeHtml(user.username || 'Player')}</span>
+                        <span class="text-xs text-gray-200 truncate flex-1">${escapeHtml(user.username || 'Player')}</span>
+                        <button onclick="window.openUserProfile('${user.uid}')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px] font-bold text-gray-200">View</button>
                     </div>
                 `).join('') : `<div class="text-xs text-gray-500 px-1">No online players found.</div>`}
             </div>
@@ -657,7 +886,8 @@ function renderDirectListPanel(list) {
                         <div class="flex items-center gap-2 bg-white/5 rounded-lg p-2">
                             <span class="w-2 h-2 rounded-full bg-green-400"></span>
                             <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-white/10">
-                            <span class="text-xs text-gray-200 truncate">${escapeHtml(user.username || 'Player')}</span>
+                            <span class="text-xs text-gray-200 truncate flex-1">${escapeHtml(user.username || 'Player')}</span>
+                            <button onclick="window.openUserProfile('${user.uid}')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px] font-bold text-gray-200">View</button>
                         </div>
                     `).join('') || `<div class="text-xs text-gray-500 px-1">No online users right now.</div>`}
                 </div>
@@ -723,6 +953,19 @@ function renderMobileDirectPanel(list) {
                     }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
                 </div>
             </div>
+            <div>
+                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Online Players</div>
+                <div class="space-y-2">
+                    ${(window.chatState.onlineUsers || []).slice(0, 8).map(user => `
+                        <div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg p-2">
+                            <span class="w-2 h-2 rounded-full bg-green-400"></span>
+                            <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover border border-white/10">
+                            <span class="text-xs text-gray-200 truncate flex-1">${escapeHtml(user.username || 'Player')}</span>
+                            <button onclick="window.openUserProfile('${user.uid}')" class="px-2 py-1 rounded bg-white/10 text-[10px] font-bold text-gray-200">View</button>
+                        </div>
+                    `).join('') || `<div class="text-xs text-gray-500 px-1">No online players.</div>`}
+                </div>
+            </div>
         </div>
     `;
 }
@@ -741,6 +984,8 @@ window.switchChatTab = function (tab, skipListRefresh = false) {
             avatar: firstFriend.avatar || ''
         };
         window.Services?.chat?.listenToDirectChat?.(firstFriend.uid);
+    } else if (window.activeChatTab === 'dms' && window.chatState.activeDmFriend?.uid) {
+        window.Services?.chat?.listenToDirectChat?.(window.chatState.activeDmFriend.uid);
     }
     if (window.activeChatTab === 'dms' && window.innerWidth <= 768) {
         window.chatState.mobileListOpen = true;
@@ -1060,9 +1305,14 @@ window.handleFeedImageSelection = async function (event) {
         renderFeedComposerPreview();
         return;
     }
+    const maxImages = 5;
+    const finalFiles = selectedFiles.slice(0, maxImages);
+    if (selectedFiles.length > maxImages) {
+        showToast(`Only ${maxImages} images allowed per post batch`, "info");
+    }
 
     try {
-        const uploads = await Promise.all(selectedFiles.map(async (file) => ({
+        const uploads = await Promise.all(finalFiles.map(async (file) => ({
             name: file.name,
             dataUrl: await fileToDataUrl(file)
         })));
@@ -1090,7 +1340,12 @@ window.likeFeedPost = async function (postId) {
 window.toggleFeedComments = function (postId) {
     const next = !window.chatState.expandedComments[postId];
     window.chatState.expandedComments[postId] = next;
-    if (next) ensureFeedCommentSubscription(postId);
+    if (next) {
+        ensureFeedCommentSubscription(postId);
+    } else if (window.chatState.feedCommentUnsubs[postId]) {
+        window.chatState.feedCommentUnsubs[postId]();
+        delete window.chatState.feedCommentUnsubs[postId];
+    }
     renderFeedPosts();
 };
 
@@ -1205,10 +1460,9 @@ window.saveProfileEdits = async function () {
     const coverDataUrl = window.chatState.profileUpload?.coverDataUrl || null;
 
     try {
-        const tasks = [window.Services.user.updateProfileFields({ username, bio })];
-        if (avatarDataUrl) tasks.push(window.Services.user.uploadAvatarDataUrl(avatarDataUrl));
-        if (coverDataUrl) tasks.push(window.Services.user.uploadCoverDataUrl(coverDataUrl));
-        await Promise.all(tasks);
+        await window.Services.user.updateProfileFields({ username, bio });
+        if (avatarDataUrl) await window.Services.user.uploadAvatarDataUrl(avatarDataUrl);
+        if (coverDataUrl) await window.Services.user.uploadCoverDataUrl(coverDataUrl);
         window.closeEditProfileModal();
         window.chatState.profileUpload = { avatarDataUrl: null, coverDataUrl: null };
         showToast("Profile updated successfully", "success");
@@ -1464,7 +1718,32 @@ window.removeFeedComposerImage = function (index) {
 function fileToDataUrl(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onload = () => {
+            const rawDataUrl = String(reader.result || '');
+            const img = new Image();
+            img.onload = () => {
+                const maxSize = 1280;
+                const ratio = Math.min(1, maxSize / Math.max(img.width || 1, img.height || 1));
+                const width = Math.max(1, Math.round((img.width || 1) * ratio));
+                const height = Math.max(1, Math.round((img.height || 1) * ratio));
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    resolve(rawDataUrl);
+                    return;
+                }
+
+                ctx.drawImage(img, 0, 0, width, height);
+                const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+                const optimized = canvas.toDataURL(outputType, outputType === 'image/png' ? undefined : 0.82);
+                resolve(optimized || rawDataUrl);
+            };
+            img.onerror = () => resolve(rawDataUrl);
+            img.src = rawDataUrl;
+        };
         reader.onerror = () => reject(new Error('File read failed'));
         reader.readAsDataURL(file);
     });
