@@ -18,7 +18,7 @@
   <!-- Top Navigation -->
   <header class="glass-header">
     <div class="flex items-center gap-4">
-      <button onclick="toggleSidebar()" class="p-2 hover:bg-white/5 rounded-xl lg:hidden">
+      <button id="menuToggleBtn" onclick="toggleSidebar()" class="p-2 hover:bg-white/5 rounded-xl lg:hidden">
         <i class="fas fa-bars"></i>
       </button>
       <div class="flex items-center gap-2 cursor-pointer" onclick="window.location.href='index.html'">
@@ -44,6 +44,10 @@
     </div>
 
     <div class="flex items-center gap-4">
+      <button onclick="switchView('social')"
+        class="hidden md:flex w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 items-center justify-center transition-all border border-white/10 group">
+        <i class="fas fa-bolt text-lg text-gray-400 group-hover:text-purple-400"></i>
+      </button>
       <button onclick="switchView('profile')"
         class="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all border border-white/10 group">
         <i class="fas fa-user-circle text-2xl text-gray-400 group-hover:text-purple-400"></i>
@@ -92,6 +96,7 @@
       </div>
     </nav>
   </aside>
+  <div id="sidebarBackdrop" class="hidden fixed inset-0 bg-black/60 backdrop-blur-[1px] z-30 lg:hidden"></div>
 
   <!-- Main Grid -->
   <main class="main-container" id="mainContainer">
@@ -371,10 +376,51 @@
       if (!view) switchView('home');
     });
 
+    function isMobileSidebarViewport() {
+      return window.matchMedia('(max-width: 1100px)').matches;
+    }
+    function openSidebar() {
+      const sb = document.getElementById('sidebar');
+      const backdrop = document.getElementById('sidebarBackdrop');
+      if (!sb) return;
+      sb.style.transform = 'translateX(0px)';
+      if (backdrop && isMobileSidebarViewport()) backdrop.classList.remove('hidden');
+    }
+    function closeSidebar() {
+      const sb = document.getElementById('sidebar');
+      const backdrop = document.getElementById('sidebarBackdrop');
+      if (!sb) return;
+      sb.style.transform = 'translateX(-100%)';
+      if (backdrop) backdrop.classList.add('hidden');
+    }
     function toggleSidebar() {
       const sb = document.getElementById('sidebar');
-      sb.style.transform = (sb.style.transform === 'translateX(0px)') ? 'translateX(-100%)' : 'translateX(0px)';
+      if (!sb) return;
+      const isOpen = sb.style.transform === 'translateX(0px)';
+      if (isOpen) closeSidebar();
+      else openSidebar();
     }
+    document.addEventListener('DOMContentLoaded', () => {
+      const backdrop = document.getElementById('sidebarBackdrop');
+      if (backdrop) {
+        backdrop.addEventListener('click', closeSidebar);
+      }
+      document.addEventListener('click', (e) => {
+        if (!isMobileSidebarViewport()) return;
+        const sb = document.getElementById('sidebar');
+        const menuBtn = document.getElementById('menuToggleBtn');
+        if (!sb || !menuBtn) return;
+        const clickInsideSidebar = sb.contains(e.target);
+        const clickMenuBtn = menuBtn.contains(e.target);
+        if (!clickInsideSidebar && !clickMenuBtn) closeSidebar();
+      });
+      window.addEventListener('resize', () => {
+        if (!isMobileSidebarViewport()) {
+          const backdrop = document.getElementById('sidebarBackdrop');
+          if (backdrop) backdrop.classList.add('hidden');
+        }
+      });
+    });
     function triggerFullscreen() {
       const iframe = document.getElementById('gameIframe');
       if (iframe.requestFullscreen) iframe.requestFullscreen();

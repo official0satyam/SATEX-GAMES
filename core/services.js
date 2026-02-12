@@ -25,7 +25,9 @@ import {
     onSnapshot,
     serverTimestamp,
     orderBy,
-    limit
+    limit,
+    runTransaction,
+    increment
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 /* -------------------------------------------------------------------------- */
@@ -372,32 +374,40 @@ export const FriendService = {
         if (!State.currentUser) return;
 
         try {
-            // 1. Add to My Friends
-            await setDoc(doc(db, `users/${State.currentUser.uid}/friends/${request.from}`), {
-                uid: request.from,
-                username: request.username,
-                avatar: request.avatar,
-                status: 'accepted',
-                timestamp: serverTimestamp()
+            await runTransaction(db, async (transaction) => {
+                // References
+                const myFriendRef = doc(db, `users/${State.currentUser.uid}/friends/${request.from}`);
+                const theirFriendRef = doc(db, `users/${request.from}/friends/${State.currentUser.uid}`);
+                const requestRef = doc(db, `users/${State.currentUser.uid}/requests/${request.from}`);
+
+                // 1. Add to My Friends
+                transaction.set(myFriendRef, {
+                    uid: request.from,
+                    username: request.username,
+                    avatar: request.avatar,
+                    status: 'accepted',
+                    timestamp: serverTimestamp()
+                });
+
+                // 2. Add Me to Their Friends
+                transaction.set(theirFriendRef, {
+                    uid: State.currentUser.uid,
+                    username: State.profile?.username || State.currentUser.displayName || "Player",
+                    avatar: State.profile?.avatar || "",
+                    status: 'accepted',
+                    timestamp: serverTimestamp()
+                });
+
+                // 3. Delete Request
+                transaction.delete(requestRef);
             });
 
-            // 2. Add Me to Their Friends
-            await setDoc(doc(db, `users/${request.from}/friends/${State.currentUser.uid}`), {
-                uid: State.currentUser.uid,
-                username: State.profile?.username || State.currentUser.displayName || "Player",
-                avatar: State.profile?.avatar || "",
-                status: 'accepted',
-                timestamp: serverTimestamp()
-            });
-
-            // 3. Delete Request
-            await deleteDoc(doc(db, `users/${State.currentUser.uid}/requests/${request.from}`));
-
-            // Feed Post
+            // Feed Post (Outside transaction as it's not critical for data integrity of friendship)
             FeedService.postActivity('friend', { friendId: request.from, friendName: request.username });
 
         } catch (e) {
             console.error("Accept Friend Error", e);
+            throw e; // Re-throw for UI to handle
         }
     }
 };
@@ -409,7 +419,7 @@ export const FeedService = {
     postActivity: async (type, data) => {
         if (!State.currentUser) return;
         try {
-            await addDoc(collection(db, "social_feed"), {
+            await addDoc(collection(db, "posts"), {
                 type,
                 user: {
                     uid: State.currentUser.uid,
@@ -432,9 +442,49 @@ export const FeedService = {
         await FeedService.postActivity("status", { text: safeText });
     },
 
+    likePost: async (postId) => {
+        if (!State.currentUser) return;
+        const postRef = doc(db, "posts", postId);
+        const likeRef = doc(db, `posts/${postId}/likes/${State.currentUser.uid}`);
+
+        try {
+            await runTransaction(db, async (transaction) => {
+                const likeDoc = await transaction.get(likeRef);
+                if (likeDoc.exists()) {
+                    // Unlike
+                    transaction.delete(likeRef);
+                    transaction.update(postRef, { likes: increment(-1) });
+                } else {
+                    // Like
+                    transaction.set(likeRef, {
+                        uid: State.currentUser.uid,
+                        timestamp: serverTimestamp()
+                    });
+                    transaction.update(postRef, { likes: increment(1) });
+                }
+            });
+        } catch (e) { console.error("Like Error", e); }
+    },
+
+    addComment: async (postId, text) => {
+        if (!State.currentUser) return;
+        if (!text.trim()) return;
+
+        try {
+            await addDoc(collection(db, `posts/${postId}/comments`), {
+                text: text.trim(),
+                uid: State.currentUser.uid,
+                username: State.profile?.username || "Player",
+                avatar: State.profile?.avatar || "",
+                timestamp: serverTimestamp()
+            });
+            await updateDoc(doc(db, "posts", postId), { comments: increment(1) });
+        } catch (e) { console.error("Comment Error", e); }
+    },
+
     listenToFeed: () => {
         if (State.feedUnsub) State.feedUnsub();
-        const q = query(collection(db, "social_feed"), orderBy("timestamp", "desc"), limit(20));
+        const q = query(collection(db, "posts"), orderBy("timestamp", "desc"), limit(20));
         State.feedUnsub = onSnapshot(q, (snapshot) => {
             const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             window.dispatchEvent(new CustomEvent('feedUpdated', { detail: posts }));
@@ -457,20 +507,22 @@ export const ChatService = {
 
     sendGlobalMessage: async (text) => {
         if (!State.currentUser || !text.trim()) return;
+        // Global chat can remain in global_chat_v2 or migrate to a 'global' chat document in chats collection
+        // For now, keeping global_chat_v2 as it's separate from DMs
         await addDoc(collection(db, "global_chat_v2"), {
             text,
             uid: State.currentUser.uid,
             user: State.profile?.username || State.currentUser.displayName || "Player",
             avatar: State.profile?.avatar || "",
             timestamp: serverTimestamp(),
-            verified: false // Admin badge hook
+            verified: false
         });
     },
 
     listenToDirectChat: (targetUid) => {
         if (!State.currentUser || !targetUid) return;
         const ids = [State.currentUser.uid, targetUid].sort();
-        const threadId = `${ids[0]}_${ids[1]}`;
+        const chatId = `${ids[0]}_${ids[1]}`;
 
         if (State.directChatUnsub && State.activeDmTarget === targetUid) return;
         if (State.directChatUnsub) {
@@ -480,7 +532,7 @@ export const ChatService = {
 
         State.activeDmTarget = targetUid;
         const q = query(
-            collection(db, `dm_threads/${threadId}/messages`),
+            collection(db, `chats/${chatId}/messages`),
             orderBy("timestamp", "asc"),
             limit(200)
         );
@@ -495,10 +547,10 @@ export const ChatService = {
     sendDirectMessage: async (targetUid, text) => {
         if (!State.currentUser || !targetUid || !text.trim()) return;
         const ids = [State.currentUser.uid, targetUid].sort();
-        const threadId = `${ids[0]}_${ids[1]}`;
-        const threadRef = doc(db, "dm_threads", threadId);
+        const chatId = `${ids[0]}_${ids[1]}`;
+        const chatRef = doc(db, "chats", chatId);
 
-        await setDoc(threadRef, {
+        await setDoc(chatRef, {
             participants: ids,
             updatedAt: serverTimestamp(),
             lastMessage: {
@@ -508,7 +560,7 @@ export const ChatService = {
             }
         }, { merge: true });
 
-        await addDoc(collection(db, `dm_threads/${threadId}/messages`), {
+        await addDoc(collection(db, `chats/${chatId}/messages`), {
             text: text.trim(),
             uid: State.currentUser.uid,
             user: State.profile?.username || State.currentUser.displayName || "Player",

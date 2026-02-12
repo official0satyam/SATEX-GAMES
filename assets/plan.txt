@@ -1,0 +1,112 @@
+SatX Games – Social Hub Development Master Plan
+
+PROJECT NAME: SatX Games
+
+OBJECTIVE: Upgrade the Social Hub (Profile, Feed, Chat) to a modern,
+engaging, mobile-first social system similar to Instagram / Facebook /
+Discord. The backend already uses Firebase and must NOT be rebuilt. We
+are refining and upgrading, not starting from scratch.
+
+  ---------------------------------------------------
+  ROLE DEFINITIONS (CRITICAL – DO NOT OVERLAP WORK)
+  ---------------------------------------------------
+
+AGENT 1 – ANTIGRAVITY (BACKEND ENGINEER)
+
+You are responsible ONLY for backend logic and Firebase integration.
+
+You MUST: - Handle Firebase Authentication integration - Manage
+Firestore / Realtime Database structure - Implement friend request
+logic - Ensure friend acceptance updates both users correctly - Manage
+chat message storage and real-time listeners - Store posts, likes,
+comments in Firebase - Handle image upload to Firebase Storage -
+Maintain clean database structure: users/{uid}
+users/{uid}/friends/{friendUid} posts/{postId}
+chats/{chatId}/messages/{messageId} - Write secure and optimized
+queries - Use async/await and modular JS structure
+
+You MUST NOT: - Redesign UI - Modify layout styling - Change Tailwind
+classes - Modify frontend structure unnecessarily
+
+Your job = Data logic, real-time updates, backend stability.
+
+AGENT 2 – CODEX (FRONTEND ENGINEER)
+
+You are responsible ONLY for frontend UI and UX improvements.
+
+You MUST: - Improve mobile-first design - Make UI modern and premium -
+Redesign Profile page layout - Redesign Feed post cards - Improve Chat
+layout and sidebar behavior - Ensure responsive layout for mobile and
+desktop - Fix sidebar closing on mobile when clicking outside - Improve
+button states (Friend → Friends → Chat) - Display avatar and username
+properly - Use Tailwind CSS consistently - Avoid layout overflow - Keep
+code clean and modular
+
+You MUST NOT: - Modify Firebase structure - Change backend logic -
+Rewrite database operations - Break existing real-time functionality
+
+Your job = Visual structure, usability, responsiveness.
+
+  ---------------------------------
+  SOCIAL HUB UPGRADE REQUIREMENTS
+  ---------------------------------
+
+1.  PROFILE SYSTEM
+
+-   Editable avatar
+-   Editable display name
+-   Cover photo
+-   Bio section
+-   Show achievements and game stats
+-   Clean edit modal
+-   Responsive layout
+
+2.  CHAT SYSTEM
+
+-   Unified contact list (friends + online)
+-   Show avatar + name + status
+-   Real-time messaging
+-   Clean message bubbles
+-   Mobile-friendly
+-   Sidebar closes on outside click
+-   Proper friend request state handling
+
+3.  FEED SYSTEM
+
+-   Users can post text + image
+-   Show avatar + username
+-   Like and comment buttons
+-   Remove system notifications (like “X became friends”)
+-   Show meaningful user content (game achievements, screenshots)
+-   Chronological feed
+
+  ----------------------
+  DEVELOPMENT STRATEGY
+  ----------------------
+
+-   Backend and Frontend agents work independently.
+-   Backend agent handles Firebase logic only.
+-   Frontend agent handles UI only.
+-   Do NOT overlap responsibilities.
+-   Do NOT refactor unrelated code.
+-   Work modularly (Profile → Chat → Feed).
+
+  -----------------
+  IMPORTANT RULES
+  -----------------
+
+-   Do not rebuild from scratch.
+-   Improve the existing system.
+-   Maintain mobile-first approach.
+-   Keep performance optimized.
+-   No experimental features unless requested.
+-   Stability over creativity.
+
+  ------------------------
+  CURRENT PROJECT STATUS
+  ------------------------
+
+UI/UX base system completed. Game shell responsive and stable. Now
+upgrading Social Hub features before expanding games further.
+
+END OF DOCUMENT

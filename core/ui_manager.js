@@ -12,7 +12,8 @@ window.chatState = {
     requests: [],
     onlineUsers: [],
     activeDmFriend: null,
-    mobileListOpen: false
+    mobileListOpen: false,
+    sentRequests: {}
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -45,10 +46,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const user = e.detail.user;
         console.log("[UI] Auth state:", user ? "LOGGED_IN" : "GUEST");
 
-        if (user) closeAuthOverlay();
+        if (user) {
+            closeAuthOverlay();
+            window.chatState.sentRequests = {};
+        }
         if (!user) {
             window.chatState.activeDmFriend = null;
             window.chatState.directMessages = [];
+            window.chatState.sentRequests = {};
         }
 
         const currentView = new URLSearchParams(window.location.search).get('view') || 'home';
@@ -822,7 +827,9 @@ async function searchFriendUsersByIds(inputId, resultsId) {
         resultsBox.innerHTML = filtered.map(user => `
             <div class="bg-black/20 border border-white/10 rounded-lg p-2 flex items-center justify-between gap-2">
                 <div class="text-xs text-gray-200 truncate">${escapeHtml(user.username || user.uid)}</div>
-                <button onclick="window.sendFriendRequest('${user.uid}')" class="px-2 py-1 rounded bg-purple-600 hover:bg-purple-500 text-[10px] font-bold">Add</button>
+                <button data-add-uid="${user.uid}" onclick="window.sendFriendRequest('${user.uid}')" class="px-2 py-1 rounded ${window.chatState.sentRequests[user.uid] ? 'bg-gray-600 text-gray-200 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white'} text-[10px] font-bold" ${window.chatState.sentRequests[user.uid] ? 'disabled' : ''}>
+                    ${window.chatState.sentRequests[user.uid] ? 'Sent' : 'Add'}
+                </button>
             </div>
         `).join('');
     } catch (e) {
@@ -834,6 +841,7 @@ async function searchFriendUsersByIds(inputId, resultsId) {
 window.sendFriendRequest = async function (targetUid) {
     try {
         await window.Services.friend.sendRequest(targetUid);
+        markFriendRequestSent(targetUid);
         showToast("Friend request sent", "success");
     } catch (e) {
         console.error("[FRIEND] request error:", e);
@@ -1152,6 +1160,17 @@ function extractIdFromUrl(url) {
     if (match?.id) return match.id;
     const parts = String(url).split('/');
     return parts.length > 1 ? parts[parts.length - 2] : null;
+}
+
+function markFriendRequestSent(targetUid) {
+    if (!targetUid) return;
+    window.chatState.sentRequests[targetUid] = true;
+    document.querySelectorAll(`[data-add-uid="${targetUid}"]`).forEach(btn => {
+        btn.disabled = true;
+        btn.textContent = 'Sent';
+        btn.classList.remove('bg-purple-600', 'hover:bg-purple-500', 'text-white');
+        btn.classList.add('bg-gray-600', 'text-gray-200', 'cursor-not-allowed');
+    });
 }
 
 function ensureToastStack() {
