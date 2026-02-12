@@ -24,12 +24,13 @@ window.chatState = {
     sentRequests: {},
     feedComposerFiles: [],
     profileUpload: {
-        avatarFile: null,
-        coverFile: null,
-        avatarPreviewUrl: null,
-        coverPreviewUrl: null
+        avatarUrl: '',
+        coverUrl: ''
     }
 };
+
+const PRESET_AVATARS = Array.from({ length: 10 }, (_, idx) => `https://api.dicebear.com/7.x/adventurer/svg?seed=satex-avatar-${idx + 1}`);
+const PRESET_COVERS = Array.from({ length: 10 }, (_, idx) => `https://picsum.photos/seed/satex-cover-${idx + 1}/1280/420`);
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log("[UI] Initializing...");
@@ -72,7 +73,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.chatState.directMessages = [];
             window.chatState.sentRequests = {};
             window.chatState.feedComposerFiles = [];
-            window.chatState.profileUpload = { avatarFile: null, coverFile: null, avatarPreviewUrl: null, coverPreviewUrl: null };
+            window.chatState.profileUpload = { avatarUrl: '', coverUrl: '' };
             window.chatState.viewedProfileUid = null;
             window.chatState.viewedProfileData = null;
             window.chatState.viewedProfileRelation = null;
@@ -654,7 +655,7 @@ function renderSocialFeed(isUpdate = false) {
                             <input id="statusImageFiles" type="file" accept="image/*" multiple class="hidden" onchange="window.handleFeedImageSelection(event)">
                             <div id="statusImagePreview" class="hidden mt-3 grid grid-cols-3 gap-2"></div>
                             <div class="flex items-center justify-between mt-3">
-                                <span id="statusImageMeta" class="text-[11px] text-gray-500">Write text or upload images</span>
+                                <span id="statusImageMeta" class="text-[11px] text-gray-500">Text posts are enabled</span>
                                 <button onclick="window.publishStatusPost()" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white">
                                     Post Update
                                 </button>
@@ -1281,8 +1282,8 @@ window.publishStatusPost = async function () {
     if (!input) return;
     const text = input.value.trim();
     const files = window.chatState.feedComposerFiles || [];
-    if (!text && !files.length) {
-        showToast("Write text or upload at least one image", "error");
+    if (!text) {
+        showToast("Write something before posting", "error");
         return;
     }
 
@@ -1293,24 +1294,16 @@ window.publishStatusPost = async function () {
             postBtn.textContent = 'Posting...';
         }
         if (files.length) {
-            for (let index = 0; index < files.length; index += 1) {
-                const payload = {
-                    text: index === 0 ? text : '',
-                    imageFile: files[index].file
-                };
-                await window.Services.feed.postStatus(payload);
-            }
-        } else {
-            await window.Services.feed.postStatus({ text });
+            showToast("Image posts are temporarily disabled. Text posted only.", "info");
         }
+        await window.Services.feed.postStatus({ text });
 
         input.value = '';
         if (imageInput) imageInput.value = '';
         cleanupFeedComposerPreviewUrls();
         window.chatState.feedComposerFiles = [];
         renderFeedComposerPreview();
-        const postedCount = files.length || 1;
-        showToast(postedCount > 1 ? `${postedCount} posts published` : "Status posted", "success");
+        showToast("Status posted", "success");
     } catch (e) {
         showToast(e.message || "Unable to post status", "error");
     } finally {
@@ -1323,34 +1316,12 @@ window.publishStatusPost = async function () {
 };
 
 window.handleFeedImageSelection = async function (event) {
-    const selectedFiles = Array.from(event?.target?.files || []).filter(file => file.type.startsWith('image/'));
-    if (!selectedFiles.length) {
-        cleanupFeedComposerPreviewUrls();
-        window.chatState.feedComposerFiles = [];
-        renderFeedComposerPreview();
-        return;
-    }
-    const maxImages = 5;
-    const finalFiles = selectedFiles.slice(0, maxImages);
-    if (selectedFiles.length > maxImages) {
-        showToast(`Only ${maxImages} images allowed per post batch`, "info");
-    }
-
-    try {
-        cleanupFeedComposerPreviewUrls();
-        const uploads = finalFiles.map((file) => ({
-            name: file.name,
-            file,
-            previewUrl: URL.createObjectURL(file)
-        }));
-        window.chatState.feedComposerFiles = uploads;
-        renderFeedComposerPreview();
-    } catch (e) {
-        cleanupFeedComposerPreviewUrls();
-        window.chatState.feedComposerFiles = [];
-        renderFeedComposerPreview();
-        showToast("Could not read selected image(s)", "error");
-    }
+    const input = event?.target || null;
+    if (input) input.value = '';
+    cleanupFeedComposerPreviewUrls();
+    window.chatState.feedComposerFiles = [];
+    renderFeedComposerPreview();
+    showToast("Image posts are temporarily disabled. Use text posts for now.", "info");
 };
 
 window.likeFeedPost = async function (postId) {
@@ -1414,34 +1385,31 @@ window.openEditProfileModal = function () {
     const userData = window.currentUserData || {};
     let modal = document.getElementById('editProfileModal');
     cleanupProfilePreviewUrls();
-    window.chatState.profileUpload = { avatarFile: null, coverFile: null, avatarPreviewUrl: null, coverPreviewUrl: null };
+    window.chatState.profileUpload = {
+        avatarUrl: userData.avatar || PRESET_AVATARS[0],
+        coverUrl: userData.cover_photo || PRESET_COVERS[0]
+    };
 
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'editProfileModal';
         modal.className = 'hidden fixed inset-0 z-[7100] bg-black/80 backdrop-blur-md items-center justify-center p-4';
         modal.innerHTML = `
-            <div class="w-full max-w-md bg-[#13131a] border border-white/10 rounded-2xl p-5">
+            <div class="w-full max-w-2xl bg-[#13131a] border border-white/10 rounded-2xl p-5 max-h-[90vh] overflow-y-auto">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-lg font-black text-white">Edit Profile</h3>
                     <button onclick="window.closeEditProfileModal()" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
                 </div>
-                <div class="grid grid-cols-2 gap-3 mb-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                     <div>
                         <div class="text-xs text-gray-400 font-bold mb-2">Avatar</div>
                         <img id="editProfileAvatarPreview" src="assets/icons/logo.jpg" alt="avatar preview" class="w-full h-24 rounded-xl object-cover border border-white/10">
-                        <label for="editProfileAvatarFile" class="mt-2 inline-flex items-center justify-center gap-2 w-full border border-dashed border-white/20 rounded-lg px-3 py-2 text-[11px] font-bold text-gray-300 hover:border-purple-500/50 cursor-pointer transition-all">
-                            <i class="fas fa-image"></i> Upload
-                        </label>
-                        <input id="editProfileAvatarFile" type="file" accept="image/*" class="hidden" onchange="window.handleProfileImageUpload(event, 'avatar')">
+                        <div id="editAvatarPresetList" class="mt-2 grid grid-cols-5 gap-2"></div>
                     </div>
                     <div>
                         <div class="text-xs text-gray-400 font-bold mb-2">Cover</div>
-                        <img id="editProfileCoverPreview" src="assets/icons/logo.jpg" alt="cover preview" class="w-full h-24 rounded-xl object-cover border border-white/10">
-                        <label for="editProfileCoverFile" class="mt-2 inline-flex items-center justify-center gap-2 w-full border border-dashed border-white/20 rounded-lg px-3 py-2 text-[11px] font-bold text-gray-300 hover:border-purple-500/50 cursor-pointer transition-all">
-                            <i class="fas fa-panorama"></i> Upload
-                        </label>
-                        <input id="editProfileCoverFile" type="file" accept="image/*" class="hidden" onchange="window.handleProfileImageUpload(event, 'cover')">
+                        <img id="editProfileCoverPreview" src="assets/icons/logo.jpg" alt="cover preview" class="w-full h-24 rounded-xl object-cover border border-white/10 mb-2">
+                        <div id="editCoverPresetList" class="grid grid-cols-2 md:grid-cols-5 gap-2"></div>
                     </div>
                 </div>
                 <label class="text-xs text-gray-400 font-bold">Username</label>
@@ -1464,12 +1432,9 @@ window.openEditProfileModal = function () {
     document.getElementById('editProfileBio').value = userData.bio || '';
     const avatarPreview = document.getElementById('editProfileAvatarPreview');
     const coverPreview = document.getElementById('editProfileCoverPreview');
-    if (avatarPreview) avatarPreview.src = userData.avatar || 'assets/icons/logo.jpg';
-    if (coverPreview) coverPreview.src = userData.cover_photo || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop';
-    const avatarFile = document.getElementById('editProfileAvatarFile');
-    const coverFile = document.getElementById('editProfileCoverFile');
-    if (avatarFile) avatarFile.value = '';
-    if (coverFile) coverFile.value = '';
+    if (avatarPreview) avatarPreview.src = window.chatState.profileUpload.avatarUrl || PRESET_AVATARS[0];
+    if (coverPreview) coverPreview.src = window.chatState.profileUpload.coverUrl || PRESET_COVERS[0];
+    renderProfilePresetOptions();
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 };
@@ -1480,15 +1445,36 @@ window.closeEditProfileModal = function () {
     modal.classList.remove('flex');
     modal.classList.add('hidden');
     cleanupProfilePreviewUrls();
-    window.chatState.profileUpload = { avatarFile: null, coverFile: null, avatarPreviewUrl: null, coverPreviewUrl: null };
+    window.chatState.profileUpload = { avatarUrl: '', coverUrl: '' };
 };
+
+function renderProfilePresetOptions() {
+    const avatarList = document.getElementById('editAvatarPresetList');
+    const coverList = document.getElementById('editCoverPresetList');
+    const selectedAvatar = window.chatState.profileUpload?.avatarUrl || '';
+    const selectedCover = window.chatState.profileUpload?.coverUrl || '';
+    if (avatarList) {
+        avatarList.innerHTML = PRESET_AVATARS.map((url, idx) => `
+            <button onclick="window.selectPresetAvatar('${escapeAttr(url)}')" class="rounded-lg border ${selectedAvatar === url ? 'border-purple-400 ring-2 ring-purple-500/40' : 'border-white/10'} overflow-hidden bg-black/20 hover:border-purple-500/50 transition-all" title="Avatar ${idx + 1}">
+                <img src="${url}" alt="Avatar ${idx + 1}" class="w-full h-12 object-cover">
+            </button>
+        `).join('');
+    }
+    if (coverList) {
+        coverList.innerHTML = PRESET_COVERS.map((url, idx) => `
+            <button onclick="window.selectPresetCover('${escapeAttr(url)}')" class="rounded-lg border ${selectedCover === url ? 'border-purple-400 ring-2 ring-purple-500/40' : 'border-white/10'} overflow-hidden bg-black/20 hover:border-purple-500/50 transition-all" title="Cover ${idx + 1}">
+                <img src="${url}" alt="Cover ${idx + 1}" class="w-full h-12 object-cover">
+            </button>
+        `).join('');
+    }
+}
 
 window.saveProfileEdits = async function () {
     const saveBtn = document.querySelector('#editProfileModal button[onclick="window.saveProfileEdits()"]');
     const username = (document.getElementById('editProfileUsername')?.value || '').trim();
     const bio = (document.getElementById('editProfileBio')?.value || '').trim();
-    const avatarFile = window.chatState.profileUpload?.avatarFile || null;
-    const coverFile = window.chatState.profileUpload?.coverFile || null;
+    const avatarUrl = String(window.chatState.profileUpload?.avatarUrl || '').trim();
+    const coverUrl = String(window.chatState.profileUpload?.coverUrl || '').trim();
 
     try {
         if (saveBtn) {
@@ -1496,11 +1482,9 @@ window.saveProfileEdits = async function () {
             saveBtn.classList.add('opacity-70', 'cursor-not-allowed');
             saveBtn.textContent = 'Saving...';
         }
-        await window.Services.user.updateProfileFields({ username, bio });
-        if (avatarFile) await window.Services.user.uploadAvatarFile(avatarFile);
-        if (coverFile) await window.Services.user.uploadCoverFile(coverFile);
+        await window.Services.user.updateProfileFields({ username, bio, avatar: avatarUrl, coverPhoto: coverUrl });
         window.closeEditProfileModal();
-        window.chatState.profileUpload = { avatarFile: null, coverFile: null, avatarPreviewUrl: null, coverPreviewUrl: null };
+        window.chatState.profileUpload = { avatarUrl: '', coverUrl: '' };
         showToast("Profile updated successfully", "success");
         renderProfile();
     } catch (e) {
@@ -1514,33 +1498,20 @@ window.saveProfileEdits = async function () {
     }
 };
 
-window.handleProfileImageUpload = async function (event, kind) {
-    const file = event?.target?.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
+window.selectPresetAvatar = function (url) {
+    if (!url) return;
+    window.chatState.profileUpload.avatarUrl = url;
+    const avatarPreview = document.getElementById('editProfileAvatarPreview');
+    if (avatarPreview) avatarPreview.src = url;
+    renderProfilePresetOptions();
+};
 
-    try {
-        if (kind === 'cover') {
-            if (window.chatState.profileUpload.coverPreviewUrl) {
-                URL.revokeObjectURL(window.chatState.profileUpload.coverPreviewUrl);
-            }
-            const previewUrl = URL.createObjectURL(file);
-            window.chatState.profileUpload.coverFile = file;
-            window.chatState.profileUpload.coverPreviewUrl = previewUrl;
-            const coverPreview = document.getElementById('editProfileCoverPreview');
-            if (coverPreview) coverPreview.src = previewUrl;
-        } else {
-            if (window.chatState.profileUpload.avatarPreviewUrl) {
-                URL.revokeObjectURL(window.chatState.profileUpload.avatarPreviewUrl);
-            }
-            const previewUrl = URL.createObjectURL(file);
-            window.chatState.profileUpload.avatarFile = file;
-            window.chatState.profileUpload.avatarPreviewUrl = previewUrl;
-            const avatarPreview = document.getElementById('editProfileAvatarPreview');
-            if (avatarPreview) avatarPreview.src = previewUrl;
-        }
-    } catch (e) {
-        showToast("Image upload preview failed", "error");
-    }
+window.selectPresetCover = function (url) {
+    if (!url) return;
+    window.chatState.profileUpload.coverUrl = url;
+    const coverPreview = document.getElementById('editProfileCoverPreview');
+    if (coverPreview) coverPreview.src = url;
+    renderProfilePresetOptions();
 };
 
 /* -------------------------------------------------------------------------- */
@@ -1762,7 +1733,7 @@ function renderFeedComposerPreview() {
     if (!files.length) {
         preview.classList.add('hidden');
         preview.innerHTML = '';
-        meta.textContent = 'Write text or upload images';
+        meta.textContent = 'Text posts are enabled';
         return;
     }
 
@@ -1800,9 +1771,7 @@ function cleanupFeedComposerPreviewUrls() {
 }
 
 function cleanupProfilePreviewUrls() {
-    const uploadState = window.chatState.profileUpload || {};
-    if (uploadState.avatarPreviewUrl) URL.revokeObjectURL(uploadState.avatarPreviewUrl);
-    if (uploadState.coverPreviewUrl) URL.revokeObjectURL(uploadState.coverPreviewUrl);
+    // Preset images are remote URLs, no object URL cleanup needed.
 }
 
 function ensureFeedCommentSubscription(postId) {
