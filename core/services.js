@@ -52,7 +52,11 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const storage = getStorage(app);
+const storageBucketCandidates = [
+    firebaseConfig.storageBucket,
+    `${firebaseConfig.projectId}.firebasestorage.app`,
+    `${firebaseConfig.projectId}.appspot.com`
+].filter((value, idx, list) => value && list.indexOf(value) === idx);
 
 /* -------------------------------------------------------------------------- */
 /*                               STATE MANAGEMENT                             */
@@ -102,6 +106,12 @@ function mapFirebaseError(error, fallbackMessage) {
     if (code.includes('bucket-not-found')) {
         return 'Firebase Storage bucket is not configured. Enable Storage in Firebase console.';
     }
+    if (code.includes('retry-limit-exceeded')) {
+        return 'Upload timed out. Please try a smaller image or retry.';
+    }
+    if (code.includes('invalid-format')) {
+        return 'Selected file format is not supported.';
+    }
     if (code.includes('unavailable')) {
         return 'Firebase service is temporarily unavailable. Try again in a moment.';
     }
@@ -119,14 +129,35 @@ async function uploadImageDataUrl(dataUrl, folder) {
     if (!safeData.startsWith("data:image/")) {
         throw new Error("Image data must be a valid data URL");
     }
-    const ext = safeData.startsWith("data:image/png") ? "png" : "jpg";
-    const fileRef = storageRef(storage, buildStoragePath(folder, ext));
-    try {
-        await uploadString(fileRef, safeData, "data_url");
-        return getDownloadURL(fileRef);
-    } catch (error) {
-        throw new Error(mapFirebaseError(error, "Image upload failed"));
+    const ext = safeData.startsWith("data:image/png")
+        ? "png"
+        : safeData.startsWith("data:image/webp")
+            ? "webp"
+            : "jpg";
+
+    const uploadPath = buildStoragePath(folder, ext);
+    let lastError = null;
+
+    for (const bucketName of storageBucketCandidates) {
+        const bucketStorage = getStorage(app, `gs://${bucketName}`);
+        const fileRef = storageRef(bucketStorage, uploadPath);
+        try {
+            await uploadString(fileRef, safeData, "data_url");
+            return getDownloadURL(fileRef);
+        } catch (error) {
+            lastError = error;
+            const code = String(error?.code || '');
+            // Only continue trying fallback buckets when bucket resolution fails.
+            if (!code.includes('bucket-not-found') && !code.includes('invalid-default-bucket')) {
+                break;
+            }
+        }
     }
+
+    if (lastError) {
+        throw new Error(mapFirebaseError(lastError, "Image upload failed"));
+    }
+    throw new Error("Image upload failed");
 }
 
 /* -------------------------------------------------------------------------- */
