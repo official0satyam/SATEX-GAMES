@@ -24,8 +24,10 @@ window.chatState = {
     sentRequests: {},
     feedComposerFiles: [],
     profileUpload: {
-        avatarDataUrl: null,
-        coverDataUrl: null
+        avatarFile: null,
+        coverFile: null,
+        avatarPreviewUrl: null,
+        coverPreviewUrl: null
     }
 };
 
@@ -64,11 +66,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.chatState.sentRequests = {};
         }
         if (!user) {
+            cleanupFeedComposerPreviewUrls();
+            cleanupProfilePreviewUrls();
             window.chatState.activeDmFriend = null;
             window.chatState.directMessages = [];
             window.chatState.sentRequests = {};
             window.chatState.feedComposerFiles = [];
-            window.chatState.profileUpload = { avatarDataUrl: null, coverDataUrl: null };
+            window.chatState.profileUpload = { avatarFile: null, coverFile: null, avatarPreviewUrl: null, coverPreviewUrl: null };
             window.chatState.viewedProfileUid = null;
             window.chatState.viewedProfileData = null;
             window.chatState.viewedProfileRelation = null;
@@ -163,6 +167,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (event.target === overlay) closeAuthOverlay();
         };
     }
+
+    setTimeout(() => {
+        if (!window.Services?.auth) {
+            console.error("[UI] Services module failed to initialize. Auth unavailable.");
+            showToast("Core services did not load. Refresh page.", "error");
+        }
+    }, 3000);
 });
 
 /* -------------------------------------------------------------------------- */
@@ -469,7 +480,7 @@ function renderProfile() {
                 <button onclick="window.openEditProfileModal()" class="bg-white/15 hover:bg-white/25 text-white px-4 py-2 rounded-lg text-xs font-bold backdrop-blur-sm transition-all shadow-lg">
                     <i class="fas fa-pen mr-1"></i> EDIT
                 </button>
-                <button onclick="window.Services.auth.logout()" class="bg-red-600/80 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold backdrop-blur-sm transition-all shadow-lg">
+                <button onclick="window.handleLogout()" class="bg-red-600/80 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold backdrop-blur-sm transition-all shadow-lg">
                     <i class="fas fa-sign-out-alt mr-1"></i> LOGOUT
                 </button>
             </div>
@@ -862,12 +873,12 @@ function renderDirectListPanel(list) {
                 <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Friends</div>
                 <div class="space-y-2">
                     ${friends.length ? friends.map(friend => {
-                        const isOnline = onlineIds.has(friend.uid);
-                        const thread = threadByTarget.get(friend.uid);
-                        const unread = Number(thread?.unreadCount || 0);
-                        const encodedName = encodeURIComponent(friend.username || 'Player');
-                        const encodedAvatar = encodeURIComponent(friend.avatar || '');
-                        return `
+        const isOnline = onlineIds.has(friend.uid);
+        const thread = threadByTarget.get(friend.uid);
+        const unread = Number(thread?.unreadCount || 0);
+        const encodedName = encodeURIComponent(friend.username || 'Player');
+        const encodedAvatar = encodeURIComponent(friend.avatar || '');
+        return `
                             <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="w-full text-left bg-white/5 border border-white/10 hover:border-purple-500/40 rounded-lg p-2 flex items-center gap-2 transition-all">
                                 <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : 'bg-gray-600'}"></span>
                                 <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-white/10">
@@ -875,7 +886,7 @@ function renderDirectListPanel(list) {
                                 ${unread > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${unread}</span>` : ''}
                             </button>
                         `;
-                    }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
+    }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
                 </div>
             </div>
 
@@ -937,12 +948,12 @@ function renderMobileDirectPanel(list) {
                 <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Friends</div>
                 <div class="space-y-2">
                     ${friends.length ? friends.map(friend => {
-                        const isOnline = onlineIds.has(friend.uid);
-                        const thread = threadByTarget.get(friend.uid);
-                        const unread = Number(thread?.unreadCount || 0);
-                        const encodedName = encodeURIComponent(friend.username || 'Player');
-                        const encodedAvatar = encodeURIComponent(friend.avatar || '');
-                        return `
+        const isOnline = onlineIds.has(friend.uid);
+        const thread = threadByTarget.get(friend.uid);
+        const unread = Number(thread?.unreadCount || 0);
+        const encodedName = encodeURIComponent(friend.username || 'Player');
+        const encodedAvatar = encodeURIComponent(friend.avatar || '');
+        return `
                             <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="w-full text-left bg-white/5 border border-white/10 rounded-lg p-2 flex items-center gap-2">
                                 <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : 'bg-gray-600'}"></span>
                                 <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover border border-white/10">
@@ -950,7 +961,7 @@ function renderMobileDirectPanel(list) {
                                 ${unread > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${unread}</span>` : ''}
                             </button>
                         `;
-                    }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
+    }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
                 </div>
             </div>
             <div>
@@ -1266,6 +1277,7 @@ function renderMessage(msg, container) {
 window.publishStatusPost = async function () {
     const input = document.getElementById('statusPostInput');
     const imageInput = document.getElementById('statusImageFiles');
+    const postBtn = document.querySelector('button[onclick="window.publishStatusPost()"]');
     if (!input) return;
     const text = input.value.trim();
     const files = window.chatState.feedComposerFiles || [];
@@ -1275,11 +1287,16 @@ window.publishStatusPost = async function () {
     }
 
     try {
+        if (postBtn) {
+            postBtn.disabled = true;
+            postBtn.classList.add('opacity-70', 'cursor-not-allowed');
+            postBtn.textContent = 'Posting...';
+        }
         if (files.length) {
             for (let index = 0; index < files.length; index += 1) {
                 const payload = {
                     text: index === 0 ? text : '',
-                    imageDataUrl: files[index].dataUrl
+                    imageFile: files[index].file
                 };
                 await window.Services.feed.postStatus(payload);
             }
@@ -1289,18 +1306,26 @@ window.publishStatusPost = async function () {
 
         input.value = '';
         if (imageInput) imageInput.value = '';
+        cleanupFeedComposerPreviewUrls();
         window.chatState.feedComposerFiles = [];
         renderFeedComposerPreview();
         const postedCount = files.length || 1;
         showToast(postedCount > 1 ? `${postedCount} posts published` : "Status posted", "success");
     } catch (e) {
         showToast(e.message || "Unable to post status", "error");
+    } finally {
+        if (postBtn) {
+            postBtn.disabled = false;
+            postBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            postBtn.textContent = 'Post Update';
+        }
     }
 };
 
 window.handleFeedImageSelection = async function (event) {
     const selectedFiles = Array.from(event?.target?.files || []).filter(file => file.type.startsWith('image/'));
     if (!selectedFiles.length) {
+        cleanupFeedComposerPreviewUrls();
         window.chatState.feedComposerFiles = [];
         renderFeedComposerPreview();
         return;
@@ -1312,13 +1337,16 @@ window.handleFeedImageSelection = async function (event) {
     }
 
     try {
-        const uploads = await Promise.all(finalFiles.map(async (file) => ({
+        cleanupFeedComposerPreviewUrls();
+        const uploads = finalFiles.map((file) => ({
             name: file.name,
-            dataUrl: await fileToDataUrl(file)
-        })));
+            file,
+            previewUrl: URL.createObjectURL(file)
+        }));
         window.chatState.feedComposerFiles = uploads;
         renderFeedComposerPreview();
     } catch (e) {
+        cleanupFeedComposerPreviewUrls();
         window.chatState.feedComposerFiles = [];
         renderFeedComposerPreview();
         showToast("Could not read selected image(s)", "error");
@@ -1385,7 +1413,8 @@ window.toggleFavoriteGame = async function (gameId) {
 window.openEditProfileModal = function () {
     const userData = window.currentUserData || {};
     let modal = document.getElementById('editProfileModal');
-    window.chatState.profileUpload = { avatarDataUrl: null, coverDataUrl: null };
+    cleanupProfilePreviewUrls();
+    window.chatState.profileUpload = { avatarFile: null, coverFile: null, avatarPreviewUrl: null, coverPreviewUrl: null };
 
     if (!modal) {
         modal = document.createElement('div');
@@ -1450,25 +1479,38 @@ window.closeEditProfileModal = function () {
     if (!modal) return;
     modal.classList.remove('flex');
     modal.classList.add('hidden');
-    window.chatState.profileUpload = { avatarDataUrl: null, coverDataUrl: null };
+    cleanupProfilePreviewUrls();
+    window.chatState.profileUpload = { avatarFile: null, coverFile: null, avatarPreviewUrl: null, coverPreviewUrl: null };
 };
 
 window.saveProfileEdits = async function () {
+    const saveBtn = document.querySelector('#editProfileModal button[onclick="window.saveProfileEdits()"]');
     const username = (document.getElementById('editProfileUsername')?.value || '').trim();
     const bio = (document.getElementById('editProfileBio')?.value || '').trim();
-    const avatarDataUrl = window.chatState.profileUpload?.avatarDataUrl || null;
-    const coverDataUrl = window.chatState.profileUpload?.coverDataUrl || null;
+    const avatarFile = window.chatState.profileUpload?.avatarFile || null;
+    const coverFile = window.chatState.profileUpload?.coverFile || null;
 
     try {
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.classList.add('opacity-70', 'cursor-not-allowed');
+            saveBtn.textContent = 'Saving...';
+        }
         await window.Services.user.updateProfileFields({ username, bio });
-        if (avatarDataUrl) await window.Services.user.uploadAvatarDataUrl(avatarDataUrl);
-        if (coverDataUrl) await window.Services.user.uploadCoverDataUrl(coverDataUrl);
+        if (avatarFile) await window.Services.user.uploadAvatarFile(avatarFile);
+        if (coverFile) await window.Services.user.uploadCoverFile(coverFile);
         window.closeEditProfileModal();
-        window.chatState.profileUpload = { avatarDataUrl: null, coverDataUrl: null };
+        window.chatState.profileUpload = { avatarFile: null, coverFile: null, avatarPreviewUrl: null, coverPreviewUrl: null };
         showToast("Profile updated successfully", "success");
         renderProfile();
     } catch (e) {
         showToast(e.message || "Unable to save profile", "error");
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            saveBtn.textContent = 'Save';
+        }
     }
 };
 
@@ -1477,15 +1519,24 @@ window.handleProfileImageUpload = async function (event, kind) {
     if (!file || !file.type.startsWith('image/')) return;
 
     try {
-        const dataUrl = await fileToDataUrl(file);
         if (kind === 'cover') {
-            window.chatState.profileUpload.coverDataUrl = dataUrl;
+            if (window.chatState.profileUpload.coverPreviewUrl) {
+                URL.revokeObjectURL(window.chatState.profileUpload.coverPreviewUrl);
+            }
+            const previewUrl = URL.createObjectURL(file);
+            window.chatState.profileUpload.coverFile = file;
+            window.chatState.profileUpload.coverPreviewUrl = previewUrl;
             const coverPreview = document.getElementById('editProfileCoverPreview');
-            if (coverPreview) coverPreview.src = dataUrl;
+            if (coverPreview) coverPreview.src = previewUrl;
         } else {
-            window.chatState.profileUpload.avatarDataUrl = dataUrl;
+            if (window.chatState.profileUpload.avatarPreviewUrl) {
+                URL.revokeObjectURL(window.chatState.profileUpload.avatarPreviewUrl);
+            }
+            const previewUrl = URL.createObjectURL(file);
+            window.chatState.profileUpload.avatarFile = file;
+            window.chatState.profileUpload.avatarPreviewUrl = previewUrl;
             const avatarPreview = document.getElementById('editProfileAvatarPreview');
-            if (avatarPreview) avatarPreview.src = dataUrl;
+            if (avatarPreview) avatarPreview.src = previewUrl;
         }
     } catch (e) {
         showToast("Image upload preview failed", "error");
@@ -1513,6 +1564,18 @@ function closeAuthOverlay() {
     overlay.classList.remove('active');
 }
 
+async function waitForServicesReady(timeoutMs = 10000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const services = window.Services;
+        if (services && services.auth && services.user && services.feed && services.chat) {
+            return services;
+        }
+        await new Promise(resolve => setTimeout(resolve, 120));
+    }
+    throw new Error("App services are not ready. Please refresh and try again.");
+}
+
 window.handleLogin = async function () {
     const email = document.getElementById('emailInput')?.value || '';
     const pass = document.getElementById('passwordInput')?.value || '';
@@ -1520,7 +1583,8 @@ window.handleLogin = async function () {
     if (errorDiv) errorDiv.textContent = "Logging in...";
 
     try {
-        await window.Services.auth.login(email, pass);
+        const services = await waitForServicesReady();
+        await services.auth.login(email, pass);
         closeAuthOverlay();
         showToast("Logged in successfully", "success");
     } catch (e) {
@@ -1542,12 +1606,22 @@ window.handleSignup = async function () {
     if (errorDiv) errorDiv.textContent = "Creating account...";
 
     try {
-        await window.Services.auth.signup(username, email, pass);
+        const services = await waitForServicesReady();
+        await services.auth.signup(username, email, pass);
         closeAuthOverlay();
         showToast("Account created", "success");
     } catch (e) {
         if (errorDiv) errorDiv.textContent = e.message;
         showToast("Signup failed", "error");
+    }
+};
+
+window.handleLogout = async function () {
+    try {
+        const services = await waitForServicesReady();
+        await services.auth.logout();
+    } catch (e) {
+        showToast(e.message || "Logout failed", "error");
     }
 };
 
@@ -1695,7 +1769,7 @@ function renderFeedComposerPreview() {
     preview.classList.remove('hidden');
     preview.innerHTML = files.map((file, index) => `
         <div class="relative border border-white/10 rounded-lg overflow-hidden">
-            <img src="${file.dataUrl}" alt="preview ${index + 1}" class="w-full h-20 object-cover">
+            <img src="${file.previewUrl}" alt="preview ${index + 1}" class="w-full h-20 object-cover">
             <button onclick="window.removeFeedComposerImage(${index})" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] flex items-center justify-center">
                 <i class="fas fa-times"></i>
             </button>
@@ -1707,6 +1781,10 @@ function renderFeedComposerPreview() {
 window.removeFeedComposerImage = function (index) {
     const files = window.chatState.feedComposerFiles || [];
     if (index < 0 || index >= files.length) return;
+    const removed = files[index];
+    if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+    }
     files.splice(index, 1);
     window.chatState.feedComposerFiles = files;
 
@@ -1715,38 +1793,16 @@ window.removeFeedComposerImage = function (index) {
     renderFeedComposerPreview();
 };
 
-function fileToDataUrl(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            const rawDataUrl = String(reader.result || '');
-            const img = new Image();
-            img.onload = () => {
-                const maxSize = 1280;
-                const ratio = Math.min(1, maxSize / Math.max(img.width || 1, img.height || 1));
-                const width = Math.max(1, Math.round((img.width || 1) * ratio));
-                const height = Math.max(1, Math.round((img.height || 1) * ratio));
-
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) {
-                    resolve(rawDataUrl);
-                    return;
-                }
-
-                ctx.drawImage(img, 0, 0, width, height);
-                const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-                const optimized = canvas.toDataURL(outputType, outputType === 'image/png' ? undefined : 0.82);
-                resolve(optimized || rawDataUrl);
-            };
-            img.onerror = () => resolve(rawDataUrl);
-            img.src = rawDataUrl;
-        };
-        reader.onerror = () => reject(new Error('File read failed'));
-        reader.readAsDataURL(file);
+function cleanupFeedComposerPreviewUrls() {
+    (window.chatState.feedComposerFiles || []).forEach(file => {
+        if (file?.previewUrl) URL.revokeObjectURL(file.previewUrl);
     });
+}
+
+function cleanupProfilePreviewUrls() {
+    const uploadState = window.chatState.profileUpload || {};
+    if (uploadState.avatarPreviewUrl) URL.revokeObjectURL(uploadState.avatarPreviewUrl);
+    if (uploadState.coverPreviewUrl) URL.revokeObjectURL(uploadState.coverPreviewUrl);
 }
 
 function ensureFeedCommentSubscription(postId) {
