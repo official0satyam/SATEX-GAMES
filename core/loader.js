@@ -11,6 +11,7 @@ const FALLBACK_GAMES = [
 ];
 
 let allGames = [];
+let listenersBound = false;
 
 async function loadGames() {
     try {
@@ -25,8 +26,12 @@ async function loadGames() {
         console.error('Error loading games.json:', error);
         allGames = FALLBACK_GAMES;
     }
+    window.allGames = allGames;
 
-    setupEventListeners();
+    if (!listenersBound) {
+        setupEventListeners();
+        listenersBound = true;
+    }
 
     // Check URL params for direct game load
     const urlParams = new URLSearchParams(window.location.search);
@@ -487,10 +492,14 @@ window.exitGame = exitGame;
 window.openSearchPage = openSearchPage;
 window.closeSearchPage = closeSearchPage;
 window.performFullSearch = performFullSearch;
-window.toggleSidebar = function () {
-    const sb = document.getElementById('sidebar');
-    sb.style.transform = (sb.style.transform === 'translateX(0px)') ? 'translateX(-100%)' : 'translateX(0px)';
-};
+window.loadGames = loadGames;
+if (typeof window.toggleSidebar !== 'function') {
+    window.toggleSidebar = function () {
+        const sb = document.getElementById('sidebar');
+        if (!sb) return;
+        sb.style.transform = (sb.style.transform === 'translateX(0px)') ? 'translateX(-100%)' : 'translateX(0px)';
+    };
+}
 window.triggerFullscreen = function () {
     const iframe = document.getElementById('gameIframe');
     if (iframe.requestFullscreen) iframe.requestFullscreen();

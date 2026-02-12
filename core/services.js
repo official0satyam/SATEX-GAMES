@@ -29,6 +29,12 @@ import {
     runTransaction,
     increment
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import {
+    getStorage,
+    ref as storageRef,
+    uploadString,
+    getDownloadURL
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 
 /* -------------------------------------------------------------------------- */
 /*                           FIREBASE CONFIGURATION                           */
@@ -46,6 +52,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 /* -------------------------------------------------------------------------- */
 /*                               STATE MANAGEMENT                             */
@@ -62,8 +69,30 @@ const State = {
     globalChatUnsub: null,
     directChatUnsub: null,
     onlineUsersUnsub: null,
-    activeDmTarget: null
+    dmThreadsUnsub: null,
+    activeDmTarget: null,
+    presenceBound: false
 };
+
+const MAX_BIO_LENGTH = 180;
+const MAX_STATUS_LENGTH = 260;
+
+function buildStoragePath(folder, ext = "jpg") {
+    const uid = State.currentUser?.uid || "anonymous";
+    const token = Math.random().toString(36).slice(2, 10);
+    return `${folder}/${uid}/${Date.now()}_${token}.${ext}`;
+}
+
+async function uploadImageDataUrl(dataUrl, folder) {
+    const safeData = String(dataUrl || "").trim();
+    if (!safeData.startsWith("data:image/")) {
+        throw new Error("Image data must be a valid data URL");
+    }
+    const ext = safeData.startsWith("data:image/png") ? "png" : "jpg";
+    const fileRef = storageRef(storage, buildStoragePath(folder, ext));
+    await uploadString(fileRef, safeData, "data_url");
+    return getDownloadURL(fileRef);
+}
 
 /* -------------------------------------------------------------------------- */
 /*                                AUTH SERVICE                                */
@@ -81,11 +110,23 @@ export const AuthService = {
                 FriendService.listenToFriends();
                 FriendService.listenToOnlineUsers();
                 ChatService.listenToGlobalChat();
+                ChatService.listenToDmThreads();
                 FeedService.listenToFeed();
 
                 // Presence
-                UserService.updateStatus('online');
-                window.addEventListener('beforeunload', () => UserService.updateStatus('offline'));
+                await UserService.updateStatus('online');
+                if (!State.presenceBound) {
+                    State.presenceBound = true;
+                    window.addEventListener('beforeunload', () => UserService.updateStatus('offline'));
+                    document.addEventListener('visibilitychange', () => {
+                        if (!State.currentUser) return;
+                        if (document.hidden) {
+                            UserService.updateStatus('away');
+                        } else {
+                            UserService.updateStatus('online');
+                        }
+                    });
+                }
 
             } else {
                 console.log("👤 [AUTH] Logged Out");
@@ -101,16 +142,18 @@ export const AuthService = {
     },
 
     signup: async (username, email, pass) => {
+        const safeUsername = (username || "").trim();
+        if (safeUsername.length < 3) throw new Error("Username must be at least 3 characters");
         // 1. Check Username Uniqueness
-        const q = query(collection(db, "users"), where("username", "==", username));
+        const q = query(collection(db, "users"), where("username_lc", "==", safeUsername.toLowerCase()));
         if (!(await getDocs(q)).empty) throw new Error("Username taken");
 
         // 2. Create Auth
         const cred = await createUserWithEmailAndPassword(auth, email, pass);
-        await updateProfile(cred.user, { displayName: username });
+        await updateProfile(cred.user, { displayName: safeUsername });
 
         // 3. Create Profile Doc
-        await UserService.syncProfile(cred.user, username);
+        await UserService.syncProfile(cred.user, safeUsername);
         return cred.user;
     },
 
@@ -125,8 +168,10 @@ export const AuthService = {
         if (State.friendsUnsub) { State.friendsUnsub(); State.friendsUnsub = null; }
         if (State.requestsUnsub) { State.requestsUnsub(); State.requestsUnsub = null; }
         if (State.feedUnsub) { State.feedUnsub(); State.feedUnsub = null; }
+        if (State.globalChatUnsub) { State.globalChatUnsub(); State.globalChatUnsub = null; }
         if (State.directChatUnsub) { State.directChatUnsub(); State.directChatUnsub = null; }
         if (State.onlineUsersUnsub) { State.onlineUsersUnsub(); State.onlineUsersUnsub = null; }
+        if (State.dmThreadsUnsub) { State.dmThreadsUnsub(); State.dmThreadsUnsub = null; }
 
         State.listeners.forEach(unsub => unsub());
         State.listeners = [];
@@ -138,6 +183,7 @@ export const AuthService = {
         window.dispatchEvent(new CustomEvent('friendsUpdated', { detail: [] }));
         window.dispatchEvent(new CustomEvent('requestsUpdated', { detail: [] }));
         window.dispatchEvent(new CustomEvent('onlineUsersUpdated', { detail: [] }));
+        window.dispatchEvent(new CustomEvent('dmThreadsUpdated', { detail: [] }));
     }
 };
 
@@ -154,22 +200,35 @@ export const UserService = {
             await setDoc(userRef, {
                 username: safeName,
                 username_lc: safeName.toLowerCase(),
+                display_name: safeName,
                 email: user.email,
                 uid: user.uid,
                 avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
+                cover_photo: "https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop",
                 bio: "Just a gamer.",
                 level: 1,
                 xp: 0,
+                games_played: 0,
+                achievements: [],
                 status: { state: 'online', game: null },
                 followers_count: 0,
                 following_games: [],
                 favorite_games: [],
+                last_active: serverTimestamp(),
                 joined: new Date().toISOString()
             });
         } else {
             const existing = snap.data() || {};
-            if (!existing.username_lc && existing.username) {
-                await updateDoc(userRef, { username_lc: String(existing.username).toLowerCase() });
+            const backfill = {};
+            if (!existing.username_lc && existing.username) backfill.username_lc = String(existing.username).toLowerCase();
+            if (!existing.display_name && existing.username) backfill.display_name = existing.username;
+            if (!existing.cover_photo) backfill.cover_photo = "https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop";
+            if (typeof existing.games_played !== "number") backfill.games_played = 0;
+            if (!Array.isArray(existing.achievements)) backfill.achievements = [];
+            if (!Array.isArray(existing.favorite_games)) backfill.favorite_games = [];
+            if (!Array.isArray(existing.following_games)) backfill.following_games = [];
+            if (Object.keys(backfill).length) {
+                await updateDoc(userRef, backfill);
             }
         }
     },
@@ -186,12 +245,23 @@ export const UserService = {
         if (!State.currentUser) return;
         try {
             await updateDoc(doc(db, "users", State.currentUser.uid), {
-                status: { state, game, last_seen: serverTimestamp() }
+                status: { state, game, last_seen: serverTimestamp() },
+                last_active: serverTimestamp()
             });
-        } catch (e) { console.warn("Status update failed", e); }
+        } catch (e) {
+            console.warn("Status update failed", e);
+            try {
+                await setDoc(doc(db, "users", State.currentUser.uid), {
+                    status: { state, game, last_seen: serverTimestamp() },
+                    last_active: serverTimestamp()
+                }, { merge: true });
+            } catch (fallbackError) {
+                console.warn("Status fallback failed", fallbackError);
+            }
+        }
     },
 
-    updateProfileFields: async ({ username, bio, avatar }) => {
+    updateProfileFields: async ({ username, bio, avatar, coverPhoto }) => {
         if (!State.currentUser) throw new Error("Login required");
 
         const updates = {};
@@ -199,25 +269,30 @@ export const UserService = {
         const safeUsername = (username || "").trim();
         const safeBio = (bio || "").trim();
         const safeAvatar = (avatar || "").trim();
+        const safeCover = (coverPhoto || "").trim();
 
         if (safeUsername && safeUsername !== current.username) {
             if (safeUsername.length < 3) throw new Error("Username must be at least 3 characters");
             const normalized = safeUsername.toLowerCase();
-            const q = query(collection(db, "users"), where("username", "==", safeUsername));
+            const q = query(collection(db, "users"), where("username_lc", "==", normalized));
             const snaps = await getDocs(q);
             const hasConflict = snaps.docs.some(d => d.id !== State.currentUser.uid);
             if (hasConflict) throw new Error("Username already taken");
             updates.username = safeUsername;
+            updates.display_name = safeUsername;
             updates.username_lc = normalized;
         }
 
-        if (safeBio.length > 180) throw new Error("Bio must be 180 characters or less");
+        if (safeBio.length > MAX_BIO_LENGTH) throw new Error(`Bio must be ${MAX_BIO_LENGTH} characters or less`);
         if (safeBio !== (current.bio || "")) {
             updates.bio = safeBio;
         }
 
         if (safeAvatar && safeAvatar !== current.avatar) {
             updates.avatar = safeAvatar;
+        }
+        if (safeCover && safeCover !== current.cover_photo) {
+            updates.cover_photo = safeCover;
         }
 
         if (Object.keys(updates).length === 0) return;
@@ -232,6 +307,20 @@ export const UserService = {
         }
         await UserService.fetchProfile(State.currentUser.uid);
         await FeedService.postActivity('profile_update', { fields: Object.keys(updates) });
+    },
+
+    uploadAvatarDataUrl: async (dataUrl) => {
+        if (!State.currentUser) throw new Error("Login required");
+        const imageUrl = await uploadImageDataUrl(dataUrl, "avatars");
+        await UserService.updateProfileFields({ avatar: imageUrl });
+        return imageUrl;
+    },
+
+    uploadCoverDataUrl: async (dataUrl) => {
+        if (!State.currentUser) throw new Error("Login required");
+        const imageUrl = await uploadImageDataUrl(dataUrl, "covers");
+        await UserService.updateProfileFields({ coverPhoto: imageUrl });
+        return imageUrl;
     },
 
     toggleFavoriteGame: async (gameId) => {
@@ -251,7 +340,7 @@ export const UserService = {
     toggleFollowGame: async (gameId) => {
         if (!State.currentUser) return;
         const ref = doc(db, "users", State.currentUser.uid);
-        const isFollowing = State.profile.following_games?.includes(gameId);
+        const isFollowing = State.profile?.following_games?.includes(gameId);
 
         if (isFollowing) {
             await updateDoc(ref, { following_games: arrayRemove(gameId) });
@@ -312,12 +401,30 @@ export const FriendService = {
 
         await setDoc(doc(db, `users/${targetUid}/requests/${State.currentUser.uid}`), {
             from: State.currentUser.uid,
+            to: targetUid,
             username: State.profile?.username || State.currentUser.displayName || "Player",
             avatar: State.profile?.avatar || "",
             timestamp: serverTimestamp(),
             status: 'pending'
         });
         return { status: 'sent' };
+    },
+
+    cancelRequest: async (targetUid) => {
+        if (!State.currentUser || !targetUid) return;
+        await deleteDoc(doc(db, `users/${targetUid}/requests/${State.currentUser.uid}`));
+    },
+
+    declineRequest: async (fromUid) => {
+        if (!State.currentUser || !fromUid) return;
+        await deleteDoc(doc(db, `users/${State.currentUser.uid}/requests/${fromUid}`));
+    },
+
+    removeFriend: async (targetUid) => {
+        if (!State.currentUser || !targetUid) return;
+        const myRef = doc(db, `users/${State.currentUser.uid}/friends/${targetUid}`);
+        const theirRef = doc(db, `users/${targetUid}/friends/${State.currentUser.uid}`);
+        await Promise.all([deleteDoc(myRef), deleteDoc(theirRef)]);
     },
 
     listenToFriends: () => {
@@ -386,7 +493,8 @@ export const FriendService = {
                     username: request.username,
                     avatar: request.avatar,
                     status: 'accepted',
-                    timestamp: serverTimestamp()
+                    timestamp: serverTimestamp(),
+                    acceptedAt: serverTimestamp()
                 });
 
                 // 2. Add Me to Their Friends
@@ -395,7 +503,8 @@ export const FriendService = {
                     username: State.profile?.username || State.currentUser.displayName || "Player",
                     avatar: State.profile?.avatar || "",
                     status: 'accepted',
-                    timestamp: serverTimestamp()
+                    timestamp: serverTimestamp(),
+                    acceptedAt: serverTimestamp()
                 });
 
                 // 3. Delete Request
@@ -424,6 +533,7 @@ export const FeedService = {
                 user: {
                     uid: State.currentUser.uid,
                     username: State.profile?.username || State.currentUser.displayName || "Player",
+                    display_name: State.profile?.display_name || State.profile?.username || State.currentUser.displayName || "Player",
                     avatar: State.profile?.avatar || ""
                 },
                 data,
@@ -434,18 +544,39 @@ export const FeedService = {
         } catch (e) { console.error("Feed Post Error", e); }
     },
 
-    postStatus: async (text) => {
+    postStatus: async (payload) => {
         if (!State.currentUser) throw new Error("Login required");
-        const safeText = (text || "").trim();
-        if (!safeText) throw new Error("Status text cannot be empty");
-        if (safeText.length > 260) throw new Error("Status must be 260 characters or less");
-        await FeedService.postActivity("status", { text: safeText });
+        const isString = typeof payload === "string";
+        const safeText = (isString ? payload : payload?.text || "").trim();
+        let imageUrl = (isString ? "" : payload?.imageUrl || "").trim();
+        const imageDataUrl = (isString ? "" : payload?.imageDataUrl || "").trim();
+
+        if (safeText.length > MAX_STATUS_LENGTH) {
+            throw new Error(`Status must be ${MAX_STATUS_LENGTH} characters or less`);
+        }
+        if (imageDataUrl) {
+            imageUrl = await uploadImageDataUrl(imageDataUrl, "feed");
+        }
+        if (!safeText && !imageUrl) {
+            throw new Error("Post must include text or image");
+        }
+
+        await FeedService.postActivity("status", {
+            text: safeText,
+            imageUrl
+        });
+    },
+
+    uploadPostImageDataUrl: async (dataUrl) => {
+        if (!State.currentUser) throw new Error("Login required");
+        return uploadImageDataUrl(dataUrl, "feed");
     },
 
     likePost: async (postId) => {
         if (!State.currentUser) return;
         const postRef = doc(db, "posts", postId);
         const likeRef = doc(db, `posts/${postId}/likes/${State.currentUser.uid}`);
+        let liked = false;
 
         try {
             await runTransaction(db, async (transaction) => {
@@ -454,6 +585,7 @@ export const FeedService = {
                     // Unlike
                     transaction.delete(likeRef);
                     transaction.update(postRef, { likes: increment(-1) });
+                    liked = false;
                 } else {
                     // Like
                     transaction.set(likeRef, {
@@ -461,9 +593,14 @@ export const FeedService = {
                         timestamp: serverTimestamp()
                     });
                     transaction.update(postRef, { likes: increment(1) });
+                    liked = true;
                 }
             });
-        } catch (e) { console.error("Like Error", e); }
+            return liked;
+        } catch (e) {
+            console.error("Like Error", e);
+            throw e;
+        }
     },
 
     addComment: async (postId, text) => {
@@ -480,6 +617,19 @@ export const FeedService = {
             });
             await updateDoc(doc(db, "posts", postId), { comments: increment(1) });
         } catch (e) { console.error("Comment Error", e); }
+    },
+
+    listenToPostComments: (postId, callback) => {
+        if (!postId) return () => { };
+        const commentsQuery = query(
+            collection(db, `posts/${postId}/comments`),
+            orderBy("timestamp", "asc"),
+            limit(100)
+        );
+        return onSnapshot(commentsQuery, (snapshot) => {
+            const comments = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            if (typeof callback === "function") callback(comments);
+        });
     },
 
     listenToFeed: () => {
@@ -505,12 +655,59 @@ export const ChatService = {
         });
     },
 
+    listenToDmThreads: () => {
+        if (!State.currentUser) {
+            window.dispatchEvent(new CustomEvent('dmThreadsUpdated', { detail: [] }));
+            return;
+        }
+        if (State.dmThreadsUnsub) {
+            State.dmThreadsUnsub();
+            State.dmThreadsUnsub = null;
+        }
+
+        const buildThreads = (snapshot) => {
+            const threads = snapshot.docs.map(d => {
+                const data = d.data() || {};
+                const participants = Array.isArray(data.participants) ? data.participants : [];
+                const targetUid = participants.find(uid => uid !== State.currentUser.uid) || null;
+                return {
+                    id: d.id,
+                    ...data,
+                    targetUid,
+                    unreadCount: data.unread?.[State.currentUser.uid] || 0
+                };
+            });
+            window.dispatchEvent(new CustomEvent('dmThreadsUpdated', { detail: threads }));
+        };
+
+        const orderedQ = query(
+            collection(db, "chats"),
+            where("participants", "array-contains", State.currentUser.uid),
+            orderBy("updatedAt", "desc"),
+            limit(50)
+        );
+        State.dmThreadsUnsub = onSnapshot(
+            orderedQ,
+            buildThreads,
+            () => {
+                const fallbackQ = query(
+                    collection(db, "chats"),
+                    where("participants", "array-contains", State.currentUser.uid),
+                    limit(50)
+                );
+                if (State.dmThreadsUnsub) State.dmThreadsUnsub();
+                State.dmThreadsUnsub = onSnapshot(fallbackQ, buildThreads);
+            }
+        );
+    },
+
     sendGlobalMessage: async (text) => {
-        if (!State.currentUser || !text.trim()) return;
+        const safeText = (text || "").trim();
+        if (!State.currentUser || !safeText) return;
         // Global chat can remain in global_chat_v2 or migrate to a 'global' chat document in chats collection
         // For now, keeping global_chat_v2 as it's separate from DMs
         await addDoc(collection(db, "global_chat_v2"), {
-            text,
+            text: safeText,
             uid: State.currentUser.uid,
             user: State.profile?.username || State.currentUser.displayName || "Player",
             avatar: State.profile?.avatar || "",
@@ -523,6 +720,7 @@ export const ChatService = {
         if (!State.currentUser || !targetUid) return;
         const ids = [State.currentUser.uid, targetUid].sort();
         const chatId = `${ids[0]}_${ids[1]}`;
+        const chatRef = doc(db, "chats", chatId);
 
         if (State.directChatUnsub && State.activeDmTarget === targetUid) return;
         if (State.directChatUnsub) {
@@ -531,6 +729,11 @@ export const ChatService = {
         }
 
         State.activeDmTarget = targetUid;
+        updateDoc(chatRef, {
+            [`unread.${State.currentUser.uid}`]: 0,
+            [`lastReadAt.${State.currentUser.uid}`]: serverTimestamp()
+        }).catch(() => { });
+
         const q = query(
             collection(db, `chats/${chatId}/messages`),
             orderBy("timestamp", "asc"),
@@ -549,19 +752,24 @@ export const ChatService = {
         const ids = [State.currentUser.uid, targetUid].sort();
         const chatId = `${ids[0]}_${ids[1]}`;
         const chatRef = doc(db, "chats", chatId);
+        const trimmed = text.trim();
 
         await setDoc(chatRef, {
             participants: ids,
             updatedAt: serverTimestamp(),
             lastMessage: {
-                text: text.trim(),
+                text: trimmed,
                 from: State.currentUser.uid,
                 at: serverTimestamp()
+            },
+            unread: {
+                [State.currentUser.uid]: 0
             }
         }, { merge: true });
+        await updateDoc(chatRef, { [`unread.${targetUid}`]: increment(1) });
 
         await addDoc(collection(db, `chats/${chatId}/messages`), {
-            text: text.trim(),
+            text: trimmed,
             uid: State.currentUser.uid,
             user: State.profile?.username || State.currentUser.displayName || "Player",
             avatar: State.profile?.avatar || "",

@@ -7,13 +7,18 @@ window.activeChatTab = 'global';
 window.chatState = {
     globalMessages: [],
     directMessages: [],
+    dmThreads: [],
     feedPosts: [],
+    feedComments: {},
+    feedCommentUnsubs: {},
+    expandedComments: {},
     friends: [],
     requests: [],
     onlineUsers: [],
     activeDmFriend: null,
     mobileListOpen: false,
-    sentRequests: {}
+    sentRequests: {},
+    feedComposerImageUrl: ''
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -54,6 +59,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.chatState.activeDmFriend = null;
             window.chatState.directMessages = [];
             window.chatState.sentRequests = {};
+            cleanupFeedCommentListeners();
+            window.chatState.feedComments = {};
+            window.chatState.expandedComments = {};
         }
 
         const currentView = new URLSearchParams(window.location.search).get('view') || 'home';
@@ -109,8 +117,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    window.addEventListener('dmThreadsUpdated', (e) => {
+        window.chatState.dmThreads = e.detail || [];
+        if (isChatViewActive() && window.activeChatTab === 'dms') {
+            renderChatListContent();
+        }
+    });
+
     window.addEventListener('feedUpdated', (e) => {
         window.chatState.feedPosts = e.detail || [];
+        pruneFeedCommentListeners();
         if (isSocialViewActive()) {
             renderSocialFeed(true);
         }
@@ -141,6 +157,12 @@ window.switchView = function (viewName) {
     const url = viewName === 'home' ? window.location.pathname : `?view=${viewName}`;
     history.pushState({ view: viewName }, '', url);
     _renderView(viewName, true);
+    if (window.matchMedia('(max-width: 1100px)').matches) {
+        const sidebar = document.getElementById('sidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        if (sidebar) sidebar.style.transform = 'translateX(-100%)';
+        if (backdrop) backdrop.classList.add('hidden');
+    }
 };
 
 function _renderView(viewName, isPush) {
@@ -214,7 +236,7 @@ function renderProfile() {
 
     container.innerHTML = `
         <div class="profile-header group relative">
-            <img src="https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop" class="banner-img">
+            <img src="${userData.cover_photo || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop'}" class="banner-img">
             <div class="absolute top-4 right-4 flex gap-2">
                 <button onclick="window.openEditProfileModal()" class="bg-white/15 hover:bg-white/25 text-white px-4 py-2 rounded-lg text-xs font-bold backdrop-blur-sm transition-all shadow-lg">
                     <i class="fas fa-pen mr-1"></i> EDIT
@@ -233,12 +255,16 @@ function renderProfile() {
 
         <div class="px-4 md:px-0 mt-16 md:mt-0 space-y-8">
             <div>
-                <h2 class="text-3xl font-black text-white tracking-tight">${escapeHtml(userData.username || 'Player')}</h2>
+                <h2 class="text-3xl font-black text-white tracking-tight">${escapeHtml(userData.display_name || userData.username || 'Player')}</h2>
                 <p class="text-sm text-gray-400 mt-2 max-w-2xl">${escapeHtml(userData.bio || 'No bio yet. Click edit profile to add one.')}</p>
                 <div class="flex flex-wrap gap-4 mt-3 text-sm text-gray-400">
                     <span><b>${userData.followers_count || 0}</b> Followers</span>
                     <span><b>${(userData.favorite_games || []).length}</b> Favorites</span>
                     <span><b>${(userData.following_games || []).length}</b> Following</span>
+                    <span class="inline-flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full ${userData.status?.state === 'online' ? 'bg-green-400' : userData.status?.state === 'away' ? 'bg-yellow-400' : 'bg-gray-500'}"></span>
+                        ${escapeHtml((userData.status?.state || 'offline').toUpperCase())}
+                    </span>
                 </div>
             </div>
 
@@ -376,8 +402,9 @@ function renderSocialFeed(isUpdate = false) {
                         <h2 class="text-2xl font-black text-white mb-6">Activity Feed</h2>
                         <div class="bg-white/5 border border-white/10 rounded-2xl p-4 mb-6">
                             <textarea id="statusPostInput" maxlength="260" placeholder="Share a status update..." class="w-full h-24 bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white resize-none focus:outline-none focus:border-purple-500/50"></textarea>
+                            <input id="statusImageInput" type="url" placeholder="Optional image URL (screenshot, achievement, etc.)" class="w-full mt-3 bg-black/20 border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-purple-500/50">
                             <div class="flex items-center justify-between mt-3">
-                                <span class="text-[11px] text-gray-500">260 characters max</span>
+                                <span class="text-[11px] text-gray-500">Text + optional image</span>
                                 <button onclick="window.publishStatusPost()" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white">
                                     Post Update
                                 </button>
@@ -398,7 +425,7 @@ function renderFeedPosts() {
     const feedContainer = document.getElementById('social-feed-content');
     if (!feedContainer) return;
 
-    const posts = window.chatState.feedPosts || [];
+    const posts = (window.chatState.feedPosts || []).filter(post => post.type !== 'friend');
     if (!posts.length) {
         feedContainer.innerHTML = `<div class="text-center text-gray-500 py-10">No activity yet.</div>`;
         return;
@@ -410,14 +437,39 @@ function renderFeedPosts() {
         const title = getFeedTitle(post);
         const time = formatDateTime(post.timestamp);
         const body = getFeedBody(post);
+        const comments = window.chatState.feedComments[post.id] || [];
+        const commentsExpanded = Boolean(window.chatState.expandedComments[post.id]);
+        const totalComments = Number(post.comments || 0);
+        const commentsPreview = commentsExpanded ? comments : comments.slice(-2);
 
         return `
             <div class="feed-item">
                 <img class="feed-avatar" src="${avatar}" alt="avatar">
                 <div class="feed-content">
-                    <div class="feed-header"><b>${escapeHtml(user.username || 'Player')}</b> ${title}</div>
+                    <div class="feed-header"><b>${escapeHtml(user.display_name || user.username || 'Player')}</b> ${title}</div>
                     <div class="feed-meta">${time}</div>
                     ${body}
+                    <div class="flex items-center gap-2 mt-3">
+                        <button onclick="window.likeFeedPost('${post.id}')" class="px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold text-gray-200">
+                            <i class="fas fa-heart mr-1"></i>${Number(post.likes || 0)}
+                        </button>
+                        <button onclick="window.toggleFeedComments('${post.id}')" class="px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold text-gray-200">
+                            <i class="fas fa-comment mr-1"></i>${totalComments}
+                        </button>
+                    </div>
+                    <div class="${commentsExpanded ? 'mt-3' : 'hidden'}" id="post-comments-${post.id}">
+                        <div class="space-y-2 mb-2">
+                            ${commentsPreview.length ? commentsPreview.map(comment => `
+                                <div class="bg-black/20 border border-white/10 rounded-lg px-2 py-1">
+                                    <div class="text-[11px] text-gray-300"><b>${escapeHtml(comment.username || 'Player')}:</b> ${escapeHtml(comment.text || '')}</div>
+                                </div>
+                            `).join('') : '<div class="text-[11px] text-gray-500">No comments yet.</div>'}
+                        </div>
+                        <div class="flex gap-2">
+                            <input id="comment-input-${post.id}" type="text" placeholder="Write a comment..." class="flex-1 bg-black/20 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none">
+                            <button onclick="window.submitFeedComment('${post.id}')" class="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-[11px] font-bold text-white">Send</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -445,7 +497,15 @@ function getFeedBody(post) {
     }
 
     if (post.type === 'status') {
-        return `<div class="mt-2 text-sm text-gray-200 bg-black/20 border border-white/10 rounded-xl p-3">${escapeHtml(post.data?.text || '')}</div>`;
+        const safeText = escapeHtml(post.data?.text || '');
+        const imageUrl = post.data?.imageUrl ? String(post.data.imageUrl) : '';
+        const textBlock = safeText ? `<div class="mt-2 text-sm text-gray-200 bg-black/20 border border-white/10 rounded-xl p-3">${safeText}</div>` : '';
+        const imageBlock = imageUrl ? `
+            <div class="mt-2 rounded-xl overflow-hidden border border-white/10 bg-black/20">
+                <img src="${escapeAttr(imageUrl)}" alt="post image" class="w-full max-h-72 object-cover">
+            </div>
+        ` : '';
+        return `${textBlock}${imageBlock}`;
     }
 
     if (post.type === 'profile_update') {
@@ -501,6 +561,7 @@ function renderGlobalListPanel() {
                 ${onlinePreview.length ? onlinePreview.map(user => `
                     <div class="flex items-center gap-2 bg-white/5 rounded-lg p-2">
                         <span class="w-2 h-2 rounded-full bg-green-400"></span>
+                        <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover border border-white/10">
                         <span class="text-xs text-gray-200 truncate">${escapeHtml(user.username || 'Player')}</span>
                     </div>
                 `).join('') : `<div class="text-xs text-gray-500 px-1">No online players found.</div>`}
@@ -526,6 +587,7 @@ function renderDirectListPanel(list) {
     const requests = window.chatState.requests || [];
     const friends = window.chatState.friends || [];
     const onlineIds = new Set((window.chatState.onlineUsers || []).map(u => u.uid));
+    const threadByTarget = new Map((window.chatState.dmThreads || []).map(thread => [thread.targetUid, thread]));
 
     list.innerHTML = `
         <div class="p-2 space-y-3">
@@ -542,8 +604,14 @@ function renderDirectListPanel(list) {
                 <div class="space-y-2">
                     ${requests.length ? requests.map(req => `
                         <div class="bg-white/5 border border-white/10 rounded-lg p-2 flex items-center justify-between gap-2">
-                            <div class="text-xs text-gray-200 truncate">${escapeHtml(req.username || req.from)}</div>
-                            <button onclick="window.acceptFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-green-600 hover:bg-green-500 text-[10px] font-bold">Accept</button>
+                            <div class="flex items-center gap-2 min-w-0">
+                                <img src="${req.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-white/10">
+                                <div class="text-xs text-gray-200 truncate">${escapeHtml(req.username || req.from)}</div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button onclick="window.acceptFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-green-600 hover:bg-green-500 text-[10px] font-bold">Accept</button>
+                                <button onclick="window.declineFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px] font-bold text-gray-300">Decline</button>
+                            </div>
                         </div>
                     `).join('') : `<div class="text-xs text-gray-500 px-1">No pending requests.</div>`}
                 </div>
@@ -554,12 +622,16 @@ function renderDirectListPanel(list) {
                 <div class="space-y-2">
                     ${friends.length ? friends.map(friend => {
                         const isOnline = onlineIds.has(friend.uid);
+                        const thread = threadByTarget.get(friend.uid);
+                        const unread = Number(thread?.unreadCount || 0);
                         const encodedName = encodeURIComponent(friend.username || 'Player');
                         const encodedAvatar = encodeURIComponent(friend.avatar || '');
                         return `
                             <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="w-full text-left bg-white/5 border border-white/10 hover:border-purple-500/40 rounded-lg p-2 flex items-center gap-2 transition-all">
                                 <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : 'bg-gray-600'}"></span>
-                                <span class="text-xs text-gray-200 truncate">${escapeHtml(friend.username || friend.uid)}</span>
+                                <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-white/10">
+                                <span class="text-xs text-gray-200 truncate flex-1">${escapeHtml(friend.username || friend.uid)}</span>
+                                ${unread > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${unread}</span>` : ''}
                             </button>
                         `;
                     }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
@@ -572,6 +644,7 @@ function renderDirectListPanel(list) {
                     ${(window.chatState.onlineUsers || []).slice(0, 10).map(user => `
                         <div class="flex items-center gap-2 bg-white/5 rounded-lg p-2">
                             <span class="w-2 h-2 rounded-full bg-green-400"></span>
+                            <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-white/10">
                             <span class="text-xs text-gray-200 truncate">${escapeHtml(user.username || 'Player')}</span>
                         </div>
                     `).join('') || `<div class="text-xs text-gray-500 px-1">No online users right now.</div>`}
@@ -590,6 +663,7 @@ function renderMobileDirectPanel(list) {
     const requests = window.chatState.requests || [];
     const friends = window.chatState.friends || [];
     const onlineIds = new Set((window.chatState.onlineUsers || []).map(u => u.uid));
+    const threadByTarget = new Map((window.chatState.dmThreads || []).map(thread => [thread.targetUid, thread]));
 
     list.innerHTML = `
         <div class="space-y-3">
@@ -605,8 +679,14 @@ function renderMobileDirectPanel(list) {
                 <div class="space-y-2">
                     ${requests.length ? requests.map(req => `
                         <div class="bg-white/5 border border-white/10 rounded-lg p-2 flex items-center justify-between gap-2">
-                            <span class="text-xs text-gray-200 truncate">${escapeHtml(req.username || req.from)}</span>
-                            <button onclick="window.acceptFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-green-600 text-[10px] font-bold">Accept</button>
+                            <div class="flex items-center gap-2 min-w-0">
+                                <img src="${req.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover border border-white/10">
+                                <span class="text-xs text-gray-200 truncate">${escapeHtml(req.username || req.from)}</span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button onclick="window.acceptFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-green-600 text-[10px] font-bold">Accept</button>
+                                <button onclick="window.declineFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-white/10 text-[10px] font-bold text-gray-300">Decline</button>
+                            </div>
                         </div>
                     `).join('') : `<div class="text-xs text-gray-500 px-1">No pending requests.</div>`}
                 </div>
@@ -616,12 +696,16 @@ function renderMobileDirectPanel(list) {
                 <div class="space-y-2">
                     ${friends.length ? friends.map(friend => {
                         const isOnline = onlineIds.has(friend.uid);
+                        const thread = threadByTarget.get(friend.uid);
+                        const unread = Number(thread?.unreadCount || 0);
                         const encodedName = encodeURIComponent(friend.username || 'Player');
                         const encodedAvatar = encodeURIComponent(friend.avatar || '');
                         return `
                             <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="w-full text-left bg-white/5 border border-white/10 rounded-lg p-2 flex items-center gap-2">
                                 <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : 'bg-gray-600'}"></span>
-                                <span class="text-xs text-gray-200 truncate">${escapeHtml(friend.username || friend.uid)}</span>
+                                <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover border border-white/10">
+                                <span class="text-xs text-gray-200 truncate flex-1">${escapeHtml(friend.username || friend.uid)}</span>
+                                ${unread > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${unread}</span>` : ''}
                             </button>
                         `;
                     }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
@@ -637,6 +721,15 @@ function renderMobileDirectPanel(list) {
 
 window.switchChatTab = function (tab, skipListRefresh = false) {
     window.activeChatTab = tab === 'dms' ? 'dms' : 'global';
+    if (window.activeChatTab === 'dms' && !window.chatState.activeDmFriend && (window.chatState.friends || []).length) {
+        const firstFriend = window.chatState.friends[0];
+        window.chatState.activeDmFriend = {
+            uid: firstFriend.uid,
+            username: firstFriend.username || 'Player',
+            avatar: firstFriend.avatar || ''
+        };
+        window.Services?.chat?.listenToDirectChat?.(firstFriend.uid);
+    }
     if (window.activeChatTab === 'dms' && window.innerWidth <= 768) {
         window.chatState.mobileListOpen = true;
     }
@@ -818,6 +911,8 @@ async function searchFriendUsersByIds(inputId, resultsId) {
     try {
         const users = await window.Services.friend.searchUsers(term);
         const filtered = users.filter(u => u.uid !== window.Services.state.currentUser.uid);
+        const friendIds = new Set((window.chatState.friends || []).map(friend => friend.uid));
+        const incomingRequests = new Set((window.chatState.requests || []).map(req => req.from));
 
         if (!filtered.length) {
             resultsBox.innerHTML = `<div class="text-xs text-gray-500">No users found.</div>`;
@@ -826,10 +921,18 @@ async function searchFriendUsersByIds(inputId, resultsId) {
 
         resultsBox.innerHTML = filtered.map(user => `
             <div class="bg-black/20 border border-white/10 rounded-lg p-2 flex items-center justify-between gap-2">
-                <div class="text-xs text-gray-200 truncate">${escapeHtml(user.username || user.uid)}</div>
-                <button data-add-uid="${user.uid}" onclick="window.sendFriendRequest('${user.uid}')" class="px-2 py-1 rounded ${window.chatState.sentRequests[user.uid] ? 'bg-gray-600 text-gray-200 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white'} text-[10px] font-bold" ${window.chatState.sentRequests[user.uid] ? 'disabled' : ''}>
-                    ${window.chatState.sentRequests[user.uid] ? 'Sent' : 'Add'}
-                </button>
+                <div class="flex items-center gap-2 min-w-0">
+                    <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-white/10">
+                    <div class="text-xs text-gray-200 truncate">${escapeHtml(user.username || user.uid)}</div>
+                </div>
+                ${friendIds.has(user.uid)
+                ? '<button class="px-2 py-1 rounded bg-green-700/60 text-gray-200 text-[10px] font-bold cursor-default" disabled>Friends</button>'
+                : incomingRequests.has(user.uid)
+                    ? `<button onclick="window.acceptFriendRequest('${user.uid}')" class="px-2 py-1 rounded bg-green-600 hover:bg-green-500 text-white text-[10px] font-bold">Accept</button>`
+                    : `<button data-add-uid="${user.uid}" onclick="window.sendFriendRequest('${user.uid}')" class="px-2 py-1 rounded ${window.chatState.sentRequests[user.uid] ? 'bg-gray-600 text-gray-200 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white'} text-[10px] font-bold" ${window.chatState.sentRequests[user.uid] ? 'disabled' : ''}>
+                        ${window.chatState.sentRequests[user.uid] ? 'Sent' : 'Add'}
+                    </button>`
+            }
             </div>
         `).join('');
     } catch (e) {
@@ -862,11 +965,23 @@ window.acceptFriendRequest = async function (fromUid) {
     }
 };
 
+window.declineFriendRequest = async function (fromUid) {
+    try {
+        await window.Services.friend.declineRequest(fromUid);
+        showToast("Request declined", "success");
+    } catch (e) {
+        showToast("Could not decline request", "error");
+    }
+};
+
 window.startDm = function (uid, encodedName, encodedAvatar) {
     const username = decodeURIComponent(encodedName || 'Player');
     const avatar = decodeURIComponent(encodedAvatar || '');
     window.chatState.activeDmFriend = { uid, username, avatar };
     window.chatState.directMessages = [];
+    if (window.innerWidth <= 768) {
+        window.chatState.mobileListOpen = false;
+    }
     window.switchChatTab('dms');
     window.Services?.chat?.listenToDirectChat?.(uid);
 };
@@ -893,19 +1008,58 @@ function renderMessage(msg, container) {
 
 window.publishStatusPost = async function () {
     const input = document.getElementById('statusPostInput');
+    const imageInput = document.getElementById('statusImageInput');
     if (!input) return;
     const text = input.value.trim();
-    if (!text) {
-        showToast("Write something first", "error");
+    const imageUrl = (imageInput?.value || '').trim();
+    if (!text && !imageUrl) {
+        showToast("Write text or add an image URL", "error");
         return;
     }
 
     try {
-        await window.Services.feed.postStatus(text);
+        await window.Services.feed.postStatus({ text, imageUrl });
         input.value = '';
+        if (imageInput) imageInput.value = '';
         showToast("Status posted", "success");
     } catch (e) {
         showToast(e.message || "Unable to post status", "error");
+    }
+};
+
+window.likeFeedPost = async function (postId) {
+    if (!window.Services?.state?.currentUser) {
+        window.openAuthOverlay();
+        return;
+    }
+    try {
+        await window.Services.feed.likePost(postId);
+    } catch (e) {
+        showToast("Unable to update like", "error");
+    }
+};
+
+window.toggleFeedComments = function (postId) {
+    const next = !window.chatState.expandedComments[postId];
+    window.chatState.expandedComments[postId] = next;
+    if (next) ensureFeedCommentSubscription(postId);
+    renderFeedPosts();
+};
+
+window.submitFeedComment = async function (postId) {
+    if (!window.Services?.state?.currentUser) {
+        window.openAuthOverlay();
+        return;
+    }
+    const input = document.getElementById(`comment-input-${postId}`);
+    const text = (input?.value || '').trim();
+    if (!text) return;
+
+    try {
+        await window.Services.feed.addComment(postId, text);
+        if (input) input.value = '';
+    } catch (e) {
+        showToast("Comment failed", "error");
     }
 };
 
@@ -943,6 +1097,8 @@ window.openEditProfileModal = function () {
                 <input id="editProfileUsername" type="text" class="w-full mt-1 mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm">
                 <label class="text-xs text-gray-400 font-bold">Avatar URL</label>
                 <input id="editProfileAvatar" type="text" class="w-full mt-1 mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm">
+                <label class="text-xs text-gray-400 font-bold">Cover Photo URL</label>
+                <input id="editProfileCoverPhoto" type="text" class="w-full mt-1 mb-3 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm">
                 <label class="text-xs text-gray-400 font-bold">Bio</label>
                 <textarea id="editProfileBio" maxlength="180" class="w-full mt-1 mb-4 h-24 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm resize-none"></textarea>
                 <div class="flex gap-2">
@@ -959,6 +1115,7 @@ window.openEditProfileModal = function () {
 
     document.getElementById('editProfileUsername').value = userData.username || '';
     document.getElementById('editProfileAvatar').value = userData.avatar || '';
+    document.getElementById('editProfileCoverPhoto').value = userData.cover_photo || '';
     document.getElementById('editProfileBio').value = userData.bio || '';
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -974,10 +1131,11 @@ window.closeEditProfileModal = function () {
 window.saveProfileEdits = async function () {
     const username = (document.getElementById('editProfileUsername')?.value || '').trim();
     const avatar = (document.getElementById('editProfileAvatar')?.value || '').trim();
+    const coverPhoto = (document.getElementById('editProfileCoverPhoto')?.value || '').trim();
     const bio = (document.getElementById('editProfileBio')?.value || '').trim();
 
     try {
-        await window.Services.user.updateProfileFields({ username, avatar, bio });
+        await window.Services.user.updateProfileFields({ username, avatar, coverPhoto, bio });
         window.closeEditProfileModal();
         showToast("Profile updated successfully", "success");
         renderProfile();
@@ -1170,6 +1328,39 @@ function markFriendRequestSent(targetUid) {
         btn.textContent = 'Sent';
         btn.classList.remove('bg-purple-600', 'hover:bg-purple-500', 'text-white');
         btn.classList.add('bg-gray-600', 'text-gray-200', 'cursor-not-allowed');
+    });
+}
+
+function ensureFeedCommentSubscription(postId) {
+    if (!postId) return;
+    if (window.chatState.feedCommentUnsubs[postId]) return;
+    const unsub = window.Services?.feed?.listenToPostComments?.(postId, (comments) => {
+        window.chatState.feedComments[postId] = comments || [];
+        if (window.chatState.expandedComments[postId]) {
+            renderFeedPosts();
+        }
+    });
+    if (typeof unsub === 'function') {
+        window.chatState.feedCommentUnsubs[postId] = unsub;
+    }
+}
+
+function cleanupFeedCommentListeners() {
+    Object.values(window.chatState.feedCommentUnsubs || {}).forEach(unsub => {
+        if (typeof unsub === 'function') unsub();
+    });
+    window.chatState.feedCommentUnsubs = {};
+}
+
+function pruneFeedCommentListeners() {
+    const activePostIds = new Set((window.chatState.feedPosts || []).map(post => post.id));
+    Object.entries(window.chatState.feedCommentUnsubs || {}).forEach(([postId, unsub]) => {
+        if (!activePostIds.has(postId)) {
+            if (typeof unsub === 'function') unsub();
+            delete window.chatState.feedCommentUnsubs[postId];
+            delete window.chatState.feedComments[postId];
+            delete window.chatState.expandedComments[postId];
+        }
     });
 }
 
