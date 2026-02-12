@@ -277,7 +277,14 @@ async function loadViewedProfile(uid) {
 
         window.chatState.viewedProfileData = profile;
         if (window.Services?.state?.currentUser && uid !== window.Services.state.currentUser.uid) {
-            window.chatState.viewedProfileRelation = await window.Services.friend.getRelationship(uid);
+            const [friendRelation, followRelation] = await Promise.all([
+                window.Services.friend.getRelationship(uid),
+                window.Services.user.getFollowRelationship(uid)
+            ]);
+            window.chatState.viewedProfileRelation = {
+                ...(friendRelation || {}),
+                ...(followRelation || {})
+            };
         } else {
             window.chatState.viewedProfileRelation = null;
         }
@@ -365,6 +372,54 @@ window.acceptViewedProfileRequest = async function () {
     }
 };
 
+window.followViewedProfile = async function () {
+    const targetUid = window.chatState.viewedProfileUid;
+    if (!targetUid) return;
+    if (!window.Services?.state?.currentUser) {
+        window.openAuthOverlay();
+        return;
+    }
+    try {
+        await window.Services.user.followUser(targetUid, window.chatState.viewedProfileData || {});
+        window.chatState.viewedProfileRelation = {
+            ...(window.chatState.viewedProfileRelation || {}),
+            isFollowing: true
+        };
+        if (window.chatState.viewedProfileData) {
+            const current = Number(window.chatState.viewedProfileData.followers_count || 0);
+            window.chatState.viewedProfileData.followers_count = current + 1;
+        }
+        showToast("Now following this player", "success");
+        renderProfile();
+    } catch (e) {
+        showToast(e.message || "Could not follow player", "error");
+    }
+};
+
+window.unfollowViewedProfile = async function () {
+    const targetUid = window.chatState.viewedProfileUid;
+    if (!targetUid) return;
+    if (!window.Services?.state?.currentUser) {
+        window.openAuthOverlay();
+        return;
+    }
+    try {
+        await window.Services.user.unfollowUser(targetUid);
+        window.chatState.viewedProfileRelation = {
+            ...(window.chatState.viewedProfileRelation || {}),
+            isFollowing: false
+        };
+        if (window.chatState.viewedProfileData) {
+            const current = Number(window.chatState.viewedProfileData.followers_count || 0);
+            window.chatState.viewedProfileData.followers_count = Math.max(0, current - 1);
+        }
+        showToast("Unfollowed player", "success");
+        renderProfile();
+    } catch (e) {
+        showToast(e.message || "Could not unfollow player", "error");
+    }
+};
+
 window.messageViewedProfile = function () {
     const target = window.chatState.viewedProfileData;
     if (!target?.uid) return;
@@ -403,6 +458,11 @@ function renderProfile() {
 
         const relation = window.chatState.viewedProfileRelation || {};
         const relationPending = relation.outgoingRequest || window.chatState.sentRequests[viewedUid];
+        const followAction = !currentUser
+            ? `<button onclick="window.openAuthOverlay()" class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold">Login to Follow</button>`
+            : relation.isFollowing
+                ? `<button onclick="window.unfollowViewedProfile()" class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold"><i class="fas fa-user-minus mr-1"></i> Following</button>`
+                : `<button onclick="window.followViewedProfile()" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold"><i class="fas fa-user-check mr-1"></i> Follow</button>`;
         const primaryAction = !currentUser
             ? `<button onclick="window.openAuthOverlay()" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold">Login to Add Friend</button>`
             : relation.isFriend
@@ -433,6 +493,9 @@ function renderProfile() {
                     <h2 class="text-3xl font-black text-white tracking-tight">${escapeHtml(profile.display_name || profile.username || 'Player')}</h2>
                     <p class="text-sm text-gray-400 mt-2 max-w-2xl">${escapeHtml(profile.bio || 'No bio yet.')}</p>
                     <div class="flex flex-wrap gap-4 mt-3 text-sm text-gray-400">
+                        <span><b>${profile.followers_count || 0}</b> Followers</span>
+                        <span><b>${profile.following_count || 0}</b> Following</span>
+                        <span><b>${(profile.favorite_games || []).length}</b> Favorites</span>
                         <span><b>${profile.xp || 0}</b> XP</span>
                         <span><b>${profile.games_played || 0}</b> Games</span>
                         <span class="inline-flex items-center gap-1">
@@ -442,8 +505,10 @@ function renderProfile() {
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
+                    ${followAction}
                     ${primaryAction}
                     ${relation.isFriend ? `<span class="px-3 py-2 rounded-lg bg-green-700/40 text-green-200 text-xs font-bold">Friends</span>` : ''}
+                    ${relation.followsYou ? `<span class="px-3 py-2 rounded-lg bg-sky-700/40 text-sky-200 text-xs font-bold">Follows You</span>` : ''}
                 </div>
                 <div class="bg-white/5 border border-white/10 rounded-2xl p-4 mb-8">
                     <h3 class="text-lg font-black text-white mb-3">Favorite Games</h3>
@@ -472,6 +537,7 @@ function renderProfile() {
 
     const userData = window.currentUserData || { username: 'Loading...', level: 1, xp: 0 };
     const recentGames = getRecentGames().slice(0, 8);
+    const favoriteIds = new Set((userData.favorite_games || []).map(id => String(id || '').trim().toLowerCase()).filter(Boolean));
     const favoriteGames = resolveFavoriteGames(userData.favorite_games || []).slice(0, 8);
 
     container.innerHTML = `
@@ -500,7 +566,7 @@ function renderProfile() {
                 <div class="flex flex-wrap gap-4 mt-3 text-sm text-gray-400">
                     <span><b>${userData.followers_count || 0}</b> Followers</span>
                     <span><b>${(userData.favorite_games || []).length}</b> Favorites</span>
-                    <span><b>${(userData.following_games || []).length}</b> Following</span>
+                    <span><b>${userData.following_count || 0}</b> Following</span>
                     <span class="inline-flex items-center gap-1">
                         <span class="w-2 h-2 rounded-full ${userData.status?.state === 'online' ? 'bg-green-400' : userData.status?.state === 'away' ? 'bg-yellow-400' : 'bg-gray-500'}"></span>
                         ${escapeHtml((userData.status?.state || 'offline').toUpperCase())}
@@ -546,7 +612,7 @@ function renderProfile() {
                 </div>
                 ${recentGames.length ? `
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        ${recentGames.map(game => renderProfileGameCard(game, false)).join('')}
+                        ${recentGames.map(game => renderProfileGameCard(game, isGameFavorited(favoriteIds, game))).join('')}
                     </div>
                 ` : `<div class="text-sm text-gray-500">No recent games found yet.</div>`}
             </div>
@@ -583,12 +649,8 @@ function renderChatInterface() {
                     <button onclick="switchChatTab('global')" id="tab-mobile-global" class="px-4 py-2 rounded-lg text-xs font-bold">Global</button>
                     <button onclick="switchChatTab('dms')" id="tab-mobile-dms" class="px-4 py-2 rounded-lg text-xs font-bold">DMs</button>
                 </div>
-                <div class="md:hidden px-2 pb-2 border-b border-white/5">
-                    <button id="mobileListToggleBtn" onclick="window.toggleMobileChatList()" class="w-full px-3 py-2 rounded-lg bg-white/5 text-xs font-bold text-gray-200">
-                        Show Friends & Online
-                    </button>
-                    <div id="mobile-chat-list-content" class="hidden mt-2 bg-black/20 border border-white/10 rounded-xl p-2 max-h-[32vh] overflow-y-auto"></div>
-                </div>
+                <div id="mobile-global-strip" class="md:hidden px-2 pb-2 border-b border-white/5"></div>
+                <div id="mobile-dm-list-panel" class="md:hidden px-2 pb-2 border-b border-white/5 hidden"></div>
 
                 <div id="chat-messages-area" class="flex-1 overflow-y-auto p-4 content-start chat-messages-area"></div>
 
@@ -686,6 +748,8 @@ function renderFeedPosts() {
     feedContainer.innerHTML = posts.map(post => {
         const user = post.user || {};
         const avatar = user.avatar || 'assets/icons/logo.jpg';
+        const safeUid = user.uid ? escapeAttr(user.uid) : '';
+        const canOpenProfile = Boolean(safeUid);
         const title = getFeedTitle(post);
         const time = formatDateTime(post.timestamp);
         const body = getFeedBody(post);
@@ -696,9 +760,18 @@ function renderFeedPosts() {
 
         return `
             <div class="feed-item">
-                <img class="feed-avatar" src="${avatar}" alt="avatar">
+                ${canOpenProfile
+                ? `<button onclick="window.openUserProfile('${safeUid}')" class="feed-avatar overflow-hidden border-0 p-0 bg-transparent">
+                        <img class="w-full h-full object-cover" src="${avatar}" alt="avatar">
+                    </button>`
+                : `<img class="feed-avatar" src="${avatar}" alt="avatar">`}
                 <div class="feed-content">
-                    <div class="feed-header"><b>${escapeHtml(user.display_name || user.username || 'Player')}</b> ${title}</div>
+                    <div class="feed-header">
+                        ${canOpenProfile
+                ? `<button onclick="window.openUserProfile('${safeUid}')" class="font-bold text-white hover:text-purple-300 transition-colors">${escapeHtml(user.display_name || user.username || 'Player')}</button>`
+                : `<b>${escapeHtml(user.display_name || user.username || 'Player')}</b>`}
+                        ${title}
+                    </div>
                     <div class="feed-meta">${time}</div>
                     ${body}
                     <div class="flex items-center gap-2 mt-3">
@@ -731,6 +804,7 @@ function renderFeedPosts() {
 function getFeedTitle(post) {
     if (post.type === 'friend') return `became friends with ${escapeHtml(post.data?.friendName || 'a player')}.`;
     if (post.type === 'favorite') return `favorited a game.`;
+    if (post.type === 'follow') return `started following ${escapeHtml(post.data?.targetName || 'a player')}.`;
     if (post.type === 'status') return `shared a status.`;
     if (post.type === 'profile_update') return `updated profile details.`;
     return `posted an update.`;
@@ -786,18 +860,17 @@ function populateTrending() {
 
 function renderChatListContent() {
     const list = document.getElementById('chat-list-content');
-    const mobileList = document.getElementById('mobile-chat-list-content');
-    if (!list && !mobileList) return;
+    if (!list) return;
 
     if (window.activeChatTab === 'global') {
         const globalHtml = renderGlobalListPanel();
-        if (list) list.innerHTML = globalHtml;
-        if (mobileList) mobileList.innerHTML = globalHtml;
+        list.innerHTML = globalHtml;
+        updateMobileChatPanels();
         return;
     }
 
-    if (list) renderDirectListPanel(list);
-    if (mobileList) renderMobileDirectPanel(mobileList);
+    renderDirectListPanel(list);
+    updateMobileChatPanels();
 }
 
 function renderGlobalListPanel() {
@@ -813,8 +886,10 @@ function renderGlobalListPanel() {
                 ${onlinePreview.length ? onlinePreview.map(user => `
                     <div class="flex items-center gap-2 bg-white/5 rounded-lg p-2">
                         <span class="w-2 h-2 rounded-full bg-green-400"></span>
-                        <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover border border-white/10">
-                        <span class="text-xs text-gray-200 truncate flex-1">${escapeHtml(user.username || 'Player')}</span>
+                        <button onclick="window.openUserProfile('${user.uid}')" class="w-6 h-6 rounded-full overflow-hidden border border-white/10">
+                            <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover">
+                        </button>
+                        <button onclick="window.openUserProfile('${user.uid}')" class="text-xs text-gray-200 truncate flex-1 text-left hover:text-white">${escapeHtml(user.username || 'Player')}</button>
                         <button onclick="window.openUserProfile('${user.uid}')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px] font-bold text-gray-200">View</button>
                     </div>
                 `).join('') : `<div class="text-xs text-gray-500 px-1">No online players found.</div>`}
@@ -858,8 +933,10 @@ function renderDirectListPanel(list) {
                     ${requests.length ? requests.map(req => `
                         <div class="bg-white/5 border border-white/10 rounded-lg p-2 flex items-center justify-between gap-2">
                             <div class="flex items-center gap-2 min-w-0">
-                                <img src="${req.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-white/10">
-                                <div class="text-xs text-gray-200 truncate">${escapeHtml(req.username || req.from)}</div>
+                                <button onclick="window.openUserProfile('${req.from}')" class="w-7 h-7 rounded-full overflow-hidden border border-white/10">
+                                    <img src="${req.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover">
+                                </button>
+                                <button onclick="window.openUserProfile('${req.from}')" class="text-xs text-gray-200 truncate text-left hover:text-white">${escapeHtml(req.username || req.from)}</button>
                             </div>
                             <div class="flex items-center gap-1">
                                 <button onclick="window.acceptFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-green-600 hover:bg-green-500 text-[10px] font-bold">Accept</button>
@@ -880,12 +957,15 @@ function renderDirectListPanel(list) {
         const encodedName = encodeURIComponent(friend.username || 'Player');
         const encodedAvatar = encodeURIComponent(friend.avatar || '');
         return `
-                            <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="w-full text-left bg-white/5 border border-white/10 hover:border-purple-500/40 rounded-lg p-2 flex items-center gap-2 transition-all">
+                            <div class="w-full bg-white/5 border border-white/10 hover:border-purple-500/40 rounded-lg p-2 flex items-center gap-2 transition-all">
                                 <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : 'bg-gray-600'}"></span>
-                                <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-white/10">
-                                <span class="text-xs text-gray-200 truncate flex-1">${escapeHtml(friend.username || friend.uid)}</span>
+                                <button onclick="window.openUserProfile('${friend.uid}')" class="w-7 h-7 rounded-full overflow-hidden border border-white/10">
+                                    <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover">
+                                </button>
+                                <button onclick="window.openUserProfile('${friend.uid}')" class="text-xs text-gray-200 truncate flex-1 text-left hover:text-white">${escapeHtml(friend.username || friend.uid)}</button>
                                 ${unread > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${unread}</span>` : ''}
-                            </button>
+                                <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="px-2 py-1 rounded bg-purple-600 hover:bg-purple-500 text-[10px] font-bold text-white">Chat</button>
+                            </div>
                         `;
     }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
                 </div>
@@ -897,8 +977,10 @@ function renderDirectListPanel(list) {
                     ${(window.chatState.onlineUsers || []).slice(0, 10).map(user => `
                         <div class="flex items-center gap-2 bg-white/5 rounded-lg p-2">
                             <span class="w-2 h-2 rounded-full bg-green-400"></span>
-                            <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-white/10">
-                            <span class="text-xs text-gray-200 truncate flex-1">${escapeHtml(user.username || 'Player')}</span>
+                            <button onclick="window.openUserProfile('${user.uid}')" class="w-7 h-7 rounded-full overflow-hidden border border-white/10">
+                                <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover">
+                            </button>
+                            <button onclick="window.openUserProfile('${user.uid}')" class="text-xs text-gray-200 truncate flex-1 text-left hover:text-white">${escapeHtml(user.username || 'Player')}</button>
                             <button onclick="window.openUserProfile('${user.uid}')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px] font-bold text-gray-200">View</button>
                         </div>
                     `).join('') || `<div class="text-xs text-gray-500 px-1">No online users right now.</div>`}
@@ -910,76 +992,81 @@ function renderDirectListPanel(list) {
 
 function renderMobileDirectPanel(list) {
     if (!window.Services?.state?.currentUser) {
-        list.innerHTML = `<div class="text-xs text-gray-400 p-2">Login to view friends and requests.</div>`;
+        list.innerHTML = `<div class="text-xs text-gray-400 p-2">Login to view direct messages.</div>`;
         return;
     }
 
-    const requests = window.chatState.requests || [];
     const friends = window.chatState.friends || [];
     const onlineIds = new Set((window.chatState.onlineUsers || []).map(u => u.uid));
     const threadByTarget = new Map((window.chatState.dmThreads || []).map(thread => [thread.targetUid, thread]));
 
     list.innerHTML = `
-        <div class="space-y-3">
-            <div class="bg-white/5 border border-white/10 rounded-xl p-2">
-                <div class="flex gap-2">
-                    <input id="friendSearchInputMobile" type="text" placeholder="Find username..." class="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none">
-                    <button onclick="window.searchFriendUsersMobile()" class="px-3 py-2 rounded-lg bg-white/10 text-xs text-white font-bold">Find</button>
-                </div>
-                <div id="friend-search-results-mobile" class="mt-2 space-y-2"></div>
-            </div>
-            <div>
-                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Requests</div>
-                <div class="space-y-2">
-                    ${requests.length ? requests.map(req => `
-                        <div class="bg-white/5 border border-white/10 rounded-lg p-2 flex items-center justify-between gap-2">
-                            <div class="flex items-center gap-2 min-w-0">
-                                <img src="${req.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover border border-white/10">
-                                <span class="text-xs text-gray-200 truncate">${escapeHtml(req.username || req.from)}</span>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <button onclick="window.acceptFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-green-600 text-[10px] font-bold">Accept</button>
-                                <button onclick="window.declineFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-white/10 text-[10px] font-bold text-gray-300">Decline</button>
-                            </div>
-                        </div>
-                    `).join('') : `<div class="text-xs text-gray-500 px-1">No pending requests.</div>`}
-                </div>
-            </div>
-            <div>
-                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Friends</div>
-                <div class="space-y-2">
-                    ${friends.length ? friends.map(friend => {
+        <div class="space-y-2 bg-black/20 border border-white/10 rounded-xl p-2 max-h-[36vh] overflow-y-auto">
+            ${friends.length ? friends.map(friend => {
         const isOnline = onlineIds.has(friend.uid);
         const thread = threadByTarget.get(friend.uid);
         const unread = Number(thread?.unreadCount || 0);
         const encodedName = encodeURIComponent(friend.username || 'Player');
         const encodedAvatar = encodeURIComponent(friend.avatar || '');
+        const isActive = window.chatState.activeDmFriend?.uid === friend.uid;
         return `
-                            <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="w-full text-left bg-white/5 border border-white/10 rounded-lg p-2 flex items-center gap-2">
-                                <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : 'bg-gray-600'}"></span>
-                                <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover border border-white/10">
-                                <span class="text-xs text-gray-200 truncate flex-1">${escapeHtml(friend.username || friend.uid)}</span>
-                                ${unread > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${unread}</span>` : ''}
-                            </button>
+                    <div class="w-full rounded-xl p-2 flex items-center gap-2 ${isActive ? 'bg-purple-600/20 border border-purple-500/40' : 'bg-white/5 border border-white/10'}">
+                        <button onclick="window.openUserProfile('${friend.uid}')" class="w-8 h-8 rounded-full overflow-hidden border border-white/10">
+                            <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-8 h-8 rounded-full object-cover">
+                        </button>
+                        <button onclick="window.openUserProfile('${friend.uid}')" class="flex-1 text-left">
+                            <div class="text-xs font-bold ${isActive ? 'text-white' : 'text-gray-200'} truncate">${escapeHtml(friend.username || friend.uid)}</div>
+                            <div class="text-[10px] ${isOnline ? 'text-green-300' : 'text-gray-500'}">${isOnline ? 'Online' : 'Offline'}</div>
+                        </button>
+                        ${unread > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${unread}</span>` : ''}
+                        <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="px-2 py-1 rounded bg-purple-600 hover:bg-purple-500 text-[10px] font-bold text-white">Chat</button>
+                    </div>
                         `;
-    }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
-                </div>
-            </div>
-            <div>
-                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Online Players</div>
-                <div class="space-y-2">
-                    ${(window.chatState.onlineUsers || []).slice(0, 8).map(user => `
-                        <div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg p-2">
-                            <span class="w-2 h-2 rounded-full bg-green-400"></span>
-                            <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover border border-white/10">
-                            <span class="text-xs text-gray-200 truncate flex-1">${escapeHtml(user.username || 'Player')}</span>
-                            <button onclick="window.openUserProfile('${user.uid}')" class="px-2 py-1 rounded bg-white/10 text-[10px] font-bold text-gray-200">View</button>
-                        </div>
-                    `).join('') || `<div class="text-xs text-gray-500 px-1">No online players.</div>`}
-                </div>
-            </div>
+    }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet. Add friends to start DMs.</div>`}
         </div>
     `;
+}
+
+function renderMobileGlobalStrip(container) {
+    const onlineUsers = (window.chatState.onlineUsers || []).slice(0, 20);
+    if (!container) return;
+    container.innerHTML = `
+        <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1 py-2">Online In Global</div>
+        <div class="flex gap-2 overflow-x-auto pb-1">
+            ${onlineUsers.length ? onlineUsers.map(user => `
+                <button onclick="window.openUserProfile('${user.uid}')" class="flex-shrink-0 w-16 text-center">
+                    <div class="relative mx-auto w-12 h-12 rounded-full overflow-hidden border border-white/15">
+                        <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-12 h-12 object-cover">
+                        <span class="absolute bottom-0 right-0 w-3 h-3 rounded-full border border-black ${user.status?.state === 'online' ? 'bg-green-400' : 'bg-gray-500'}"></span>
+                    </div>
+                    <div class="text-[10px] text-gray-300 truncate mt-1">${escapeHtml(user.username || 'Player')}</div>
+                </button>
+            `).join('') : `<div class="text-xs text-gray-500 px-1">No online players right now.</div>`}
+        </div>
+    `;
+}
+
+function updateMobileChatPanels() {
+    const globalStrip = document.getElementById('mobile-global-strip');
+    const dmPanel = document.getElementById('mobile-dm-list-panel');
+    if (!globalStrip || !dmPanel) return;
+
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (!isMobile) {
+        globalStrip.classList.add('hidden');
+        dmPanel.classList.add('hidden');
+        return;
+    }
+
+    if (window.activeChatTab === 'global') {
+        globalStrip.classList.remove('hidden');
+        dmPanel.classList.add('hidden');
+        renderMobileGlobalStrip(globalStrip);
+    } else {
+        globalStrip.classList.add('hidden');
+        dmPanel.classList.remove('hidden');
+        renderMobileDirectPanel(dmPanel);
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -999,11 +1086,8 @@ window.switchChatTab = function (tab, skipListRefresh = false) {
     } else if (window.activeChatTab === 'dms' && window.chatState.activeDmFriend?.uid) {
         window.Services?.chat?.listenToDirectChat?.(window.chatState.activeDmFriend.uid);
     }
-    if (window.activeChatTab === 'dms' && window.innerWidth <= 768) {
-        window.chatState.mobileListOpen = true;
-    }
     updateChatTabStyles();
-    updateMobileListVisibility();
+    updateMobileChatPanels();
 
     const input = document.getElementById('chatMsgInput');
     if (input) {
@@ -1046,21 +1130,11 @@ function updateChatTabStyles() {
 }
 
 function updateMobileListVisibility() {
-    const mobileList = document.getElementById('mobile-chat-list-content');
-    const toggleBtn = document.getElementById('mobileListToggleBtn');
-    if (!mobileList || !toggleBtn) return;
-
-    const shouldOpen = window.chatState.mobileListOpen;
-    mobileList.classList.toggle('hidden', !shouldOpen);
-    toggleBtn.textContent = shouldOpen ? "Hide Friends & Online" : "Show Friends & Online";
+    updateMobileChatPanels();
 }
 
 window.toggleMobileChatList = function () {
-    window.chatState.mobileListOpen = !window.chatState.mobileListOpen;
-    if (window.chatState.mobileListOpen) {
-        renderChatListContent();
-    }
-    updateMobileListVisibility();
+    updateMobileChatPanels();
 };
 
 function setTabClasses(el, active) {
@@ -1248,9 +1322,6 @@ window.startDm = function (uid, encodedName, encodedAvatar) {
     const avatar = decodeURIComponent(encodedAvatar || '');
     window.chatState.activeDmFriend = { uid, username, avatar };
     window.chatState.directMessages = [];
-    if (window.innerWidth <= 768) {
-        window.chatState.mobileListOpen = false;
-    }
     window.switchChatTab('dms');
     window.Services?.chat?.listenToDirectChat?.(uid);
 };
@@ -1652,7 +1723,7 @@ function renderProfileGameCard(game, isFavorite) {
     const safeUrl = escapeAttr(game.url || '');
     const safeGameId = game.id ? escapeAttr(game.id) : '';
     const favoriteBtn = game.id ? `
-        <button onclick="window.toggleFavoriteGame('${safeGameId}')" class="px-2 py-1 rounded-lg ${isFavorite ? 'bg-pink-600/80 text-white' : 'bg-white/10 text-gray-300'} text-[10px] font-bold">
+        <button onclick="window.toggleFavoriteGame('${safeGameId}')" class="px-2 py-1 rounded-lg ${isFavorite ? 'bg-pink-500 text-white shadow-lg shadow-pink-900/40 ring-1 ring-pink-300/50' : 'bg-white/10 text-gray-300 hover:bg-white/20'} text-[10px] font-bold transition-all">
             <i class="fas fa-heart mr-1"></i>${isFavorite ? 'Saved' : 'Save'}
         </button>
     ` : `<span class="text-[10px] text-gray-600">No ID</span>`;
@@ -1688,7 +1759,14 @@ function resolveFavoriteGames(gameIds) {
 function findGameById(gameId) {
     if (!gameId) return null;
     const games = window.Services?.state?.gameLibrary || window.allGames || [];
-    const game = games.find(g => g.id === gameId);
+    const lookup = String(gameId).trim().toLowerCase();
+    let game = games.find(g => String(g.id || '').trim().toLowerCase() === lookup);
+    if (!game) {
+        game = games.find(g => String(extractIdFromUrl(g.url || g.path) || '').trim().toLowerCase() === lookup);
+    }
+    if (!game && lookup.includes('/')) {
+        game = games.find(g => String(g.url || g.path || '').trim().toLowerCase().includes(lookup));
+    }
     return game ? normalizeGame(game) : null;
 }
 
@@ -1703,6 +1781,15 @@ function normalizeGame(raw) {
         thumbnail: raw.thumbnail || 'assets/icons/logo.jpg',
         category: raw.category || 'Arcade'
     };
+}
+
+function isGameFavorited(favoriteIdSet, game) {
+    if (!favoriteIdSet || !game) return false;
+    const directId = String(game.id || '').trim().toLowerCase();
+    if (directId && favoriteIdSet.has(directId)) return true;
+    const extractedId = String(extractIdFromUrl(game.url || game.path || '') || '').trim().toLowerCase();
+    if (extractedId && favoriteIdSet.has(extractedId)) return true;
+    return false;
 }
 
 function extractIdFromUrl(url) {

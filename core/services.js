@@ -275,6 +275,7 @@ export const UserService = {
                 achievements: [],
                 status: { state: 'online', game: null },
                 followers_count: 0,
+                following_count: 0,
                 following_games: [],
                 favorite_games: [],
                 last_active: serverTimestamp(),
@@ -287,6 +288,8 @@ export const UserService = {
             if (!existing.display_name && existing.username) backfill.display_name = existing.username;
             if (!existing.cover_photo) backfill.cover_photo = "https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop";
             if (typeof existing.games_played !== "number") backfill.games_played = 0;
+            if (typeof existing.followers_count !== "number") backfill.followers_count = 0;
+            if (typeof existing.following_count !== "number") backfill.following_count = 0;
             if (!Array.isArray(existing.achievements)) backfill.achievements = [];
             if (!Array.isArray(existing.favorite_games)) backfill.favorite_games = [];
             if (!Array.isArray(existing.following_games)) backfill.following_games = [];
@@ -336,12 +339,16 @@ export const UserService = {
 
         const updates = {};
         const current = State.profile || {};
-        const safeUsername = (username || "").trim();
-        const safeBio = (bio || "").trim();
-        const safeAvatar = (avatar || "").trim();
-        const safeCover = (coverPhoto || "").trim();
+        const hasUsername = typeof username === "string";
+        const hasBio = typeof bio === "string";
+        const hasAvatar = typeof avatar === "string";
+        const hasCover = typeof coverPhoto === "string";
+        const safeUsername = hasUsername ? username.trim() : "";
+        const safeBio = hasBio ? bio.trim() : "";
+        const safeAvatar = hasAvatar ? avatar.trim() : "";
+        const safeCover = hasCover ? coverPhoto.trim() : "";
 
-        if (safeUsername && safeUsername !== current.username) {
+        if (hasUsername && safeUsername && safeUsername !== current.username) {
             if (safeUsername.length < 3) throw new Error("Username must be at least 3 characters");
             const normalized = safeUsername.toLowerCase();
             const q = query(collection(db, "users"), where("username_lc", "==", normalized));
@@ -353,15 +360,17 @@ export const UserService = {
             updates.username_lc = normalized;
         }
 
-        if (safeBio.length > MAX_BIO_LENGTH) throw new Error(`Bio must be ${MAX_BIO_LENGTH} characters or less`);
-        if (safeBio !== (current.bio || "")) {
-            updates.bio = safeBio;
+        if (hasBio) {
+            if (safeBio.length > MAX_BIO_LENGTH) throw new Error(`Bio must be ${MAX_BIO_LENGTH} characters or less`);
+            if (safeBio !== (current.bio || "")) {
+                updates.bio = safeBio;
+            }
         }
 
-        if (safeAvatar && safeAvatar !== current.avatar) {
+        if (hasAvatar && safeAvatar && safeAvatar !== current.avatar) {
             updates.avatar = safeAvatar;
         }
-        if (safeCover && safeCover !== current.cover_photo) {
+        if (hasCover && safeCover && safeCover !== current.cover_photo) {
             updates.cover_photo = safeCover;
         }
 
@@ -420,6 +429,97 @@ export const UserService = {
             FeedService.postActivity('favorite', { gameId });
         }
         await UserService.fetchProfile(State.currentUser.uid); // Refresh local
+    },
+
+    getFollowRelationship: async (targetUid) => {
+        if (!State.currentUser || !targetUid || targetUid === State.currentUser.uid) {
+            return { isFollowing: false, followsYou: false };
+        }
+        const [followingSnap, followerSnap] = await Promise.all([
+            getDoc(doc(db, `users/${State.currentUser.uid}/following_users/${targetUid}`)),
+            getDoc(doc(db, `users/${State.currentUser.uid}/followers/${targetUid}`))
+        ]);
+        return {
+            isFollowing: followingSnap.exists(),
+            followsYou: followerSnap.exists()
+        };
+    },
+
+    followUser: async (targetUid, targetProfile = null) => {
+        if (!State.currentUser) throw new Error("Login required");
+        if (!targetUid) throw new Error("Target user missing");
+        if (targetUid === State.currentUser.uid) throw new Error("You cannot follow yourself");
+
+        const myUserRef = doc(db, "users", State.currentUser.uid);
+        const targetUserRef = doc(db, "users", targetUid);
+        const myFollowingRef = doc(db, `users/${State.currentUser.uid}/following_users/${targetUid}`);
+        const theirFollowerRef = doc(db, `users/${targetUid}/followers/${State.currentUser.uid}`);
+
+        await runTransaction(db, async (tx) => {
+            const [followSnap, myUserSnap, targetUserSnap] = await Promise.all([
+                tx.get(myFollowingRef),
+                tx.get(myUserRef),
+                tx.get(targetUserRef)
+            ]);
+            if (followSnap.exists()) return;
+
+            const myData = myUserSnap.exists() ? (myUserSnap.data() || {}) : {};
+            const targetData = targetUserSnap.exists() ? (targetUserSnap.data() || {}) : {};
+            const nextFollowingCount = (Number(myData.following_count || 0) || 0) + 1;
+            const nextFollowersCount = (Number(targetData.followers_count || 0) || 0) + 1;
+
+            tx.set(myFollowingRef, {
+                uid: targetUid,
+                username: targetData.username || targetProfile?.username || "Player",
+                avatar: targetData.avatar || targetProfile?.avatar || "",
+                timestamp: serverTimestamp()
+            });
+            tx.set(theirFollowerRef, {
+                uid: State.currentUser.uid,
+                username: State.profile?.username || State.currentUser.displayName || "Player",
+                avatar: State.profile?.avatar || "",
+                timestamp: serverTimestamp()
+            });
+            tx.set(myUserRef, { following_count: nextFollowingCount }, { merge: true });
+            tx.set(targetUserRef, { followers_count: nextFollowersCount }, { merge: true });
+        });
+
+        await UserService.fetchProfile(State.currentUser.uid);
+        await FeedService.postActivity('follow', {
+            targetUid,
+            targetName: targetProfile?.display_name || targetProfile?.username || "player"
+        });
+    },
+
+    unfollowUser: async (targetUid) => {
+        if (!State.currentUser) throw new Error("Login required");
+        if (!targetUid || targetUid === State.currentUser.uid) return;
+
+        const myUserRef = doc(db, "users", State.currentUser.uid);
+        const targetUserRef = doc(db, "users", targetUid);
+        const myFollowingRef = doc(db, `users/${State.currentUser.uid}/following_users/${targetUid}`);
+        const theirFollowerRef = doc(db, `users/${targetUid}/followers/${State.currentUser.uid}`);
+
+        await runTransaction(db, async (tx) => {
+            const [followSnap, myUserSnap, targetUserSnap] = await Promise.all([
+                tx.get(myFollowingRef),
+                tx.get(myUserRef),
+                tx.get(targetUserRef)
+            ]);
+            if (!followSnap.exists()) return;
+
+            const myData = myUserSnap.exists() ? (myUserSnap.data() || {}) : {};
+            const targetData = targetUserSnap.exists() ? (targetUserSnap.data() || {}) : {};
+            const nextFollowingCount = Math.max(0, (Number(myData.following_count || 0) || 0) - 1);
+            const nextFollowersCount = Math.max(0, (Number(targetData.followers_count || 0) || 0) - 1);
+
+            tx.delete(myFollowingRef);
+            tx.delete(theirFollowerRef);
+            tx.set(myUserRef, { following_count: nextFollowingCount }, { merge: true });
+            tx.set(targetUserRef, { followers_count: nextFollowersCount }, { merge: true });
+        });
+
+        await UserService.fetchProfile(State.currentUser.uid);
     }
 };
 
