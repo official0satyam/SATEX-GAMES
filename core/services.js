@@ -520,6 +520,27 @@ export const UserService = {
         });
 
         await UserService.fetchProfile(State.currentUser.uid);
+    },
+
+    listFollowingUsers: async (maxItems = 30) => {
+        if (!State.currentUser) return [];
+        const safeLimit = Math.max(1, Math.min(60, Number(maxItems) || 30));
+        try {
+            const followingQ = query(
+                collection(db, `users/${State.currentUser.uid}/following_users`),
+                orderBy("timestamp", "desc"),
+                limit(safeLimit)
+            );
+            const snap = await getDocs(followingQ);
+            return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+        } catch (error) {
+            const fallbackQ = query(
+                collection(db, `users/${State.currentUser.uid}/following_users`),
+                limit(safeLimit)
+            );
+            const fallback = await getDocs(fallbackQ);
+            return fallback.docs.map(d => ({ uid: d.id, ...d.data() }));
+        }
     }
 };
 

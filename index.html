@@ -16,7 +16,7 @@
 
 <body>
   <!-- Top Navigation -->
-  <header class="glass-header">
+  <header id="appHeader" class="glass-header">
     <div class="flex items-center gap-4">
       <button id="menuToggleBtn" onclick="toggleSidebar()" class="p-2 hover:bg-white/5 rounded-xl lg:hidden">
         <i class="fas fa-bars"></i>
@@ -30,7 +30,7 @@
 
     <div class="hidden md:flex flex-1 max-w-xl mx-10">
       <div class="relative w-full group">
-        <input type="text" id="gameSearch" placeholder="Search the metaverse..."
+        <input type="text" id="gameSearch" placeholder="Search games or players..."
           class="w-full bg-white/5 border border-white/10 rounded-2xl px-12 py-3 text-sm focus:outline-none focus:border-purple-500/50 transition-all text-white placeholder-gray-500 focus:bg-white/10">
         <i
           class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-purple-500 transition-colors"></i>
@@ -49,8 +49,12 @@
         <i class="fas fa-bolt text-lg text-gray-400 group-hover:text-purple-400"></i>
       </button>
       <button onclick="switchView('profile')"
-        class="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all border border-white/10 group">
+        class="hidden md:flex w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 items-center justify-center transition-all border border-white/10 group">
         <i class="fas fa-user-circle text-2xl text-gray-400 group-hover:text-purple-400"></i>
+      </button>
+      <button onclick="openSearchPage('')" id="mobileSearchBtn"
+        class="md:hidden w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all border border-white/10 group">
+        <i class="fas fa-search text-lg text-gray-400 group-hover:text-purple-400"></i>
       </button>
     </div>
   </header>
@@ -126,7 +130,7 @@
   </main>
 
   <!-- BOTTOM NAVIGATION (Mobile Only) -->
-  <nav class="bottom-nav md:hidden">
+  <nav id="mobileBottomNav" class="bottom-nav md:hidden">
     <button class="bottom-nav-item active" onclick="switchView('home')">
       <i class="fas fa-home"></i>
       <span>Home</span>
@@ -139,6 +143,10 @@
     <button class="bottom-nav-item" onclick="switchView('social')">
       <i class="fas fa-bolt"></i>
       <span>Feed</span>
+    </button>
+    <button class="bottom-nav-item" onclick="openSearchPage('')">
+      <i class="fas fa-search"></i>
+      <span>Search</span>
     </button>
     <button class="bottom-nav-item" onclick="switchView('profile')">
       <i class="fas fa-user"></i>
@@ -330,7 +338,7 @@
           <i class="fas fa-arrow-left text-lg group-hover:-translate-x-1 transition-transform"></i>
         </button>
         <div class="flex-1 relative group">
-          <input type="text" id="bigSearchInput" placeholder="Search games..."
+          <input type="text" id="bigSearchInput" placeholder="Search games or players..."
             class="w-full bg-transparent text-xl md:text-3xl font-black text-white placeholder-white/10 focus:outline-none border-none caret-purple-500">
           <div
             class="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-purple-600 to-blue-500 w-0 group-focus-within:w-full transition-all duration-500">
@@ -352,8 +360,17 @@
 
       <!-- Results -->
       <div class="flex-1">
+        <div id="fullSearchUsersSection" class="hidden mb-8">
+          <div class="flex items-baseline justify-between mb-4 border-b border-white/5 pb-3">
+            <h2 class="text-xl font-black text-white tracking-tight">Players</h2>
+            <span id="searchUserCount"
+              class="text-sky-300 font-bold bg-sky-500/10 px-3 py-1 rounded-lg border border-sky-500/20">0
+              Found</span>
+          </div>
+          <div id="fullSearchUsersList" class="space-y-2"></div>
+        </div>
         <div class="flex items-baseline justify-between mb-8 border-b border-white/5 pb-4">
-          <h2 class="text-2xl font-black text-white tracking-tight">Search Results</h2>
+          <h2 class="text-2xl font-black text-white tracking-tight">Games</h2>
           <span id="searchResultCount"
             class="text-purple-400 font-bold bg-purple-500/10 px-3 py-1 rounded-lg border border-purple-500/20">0
             Found</span>

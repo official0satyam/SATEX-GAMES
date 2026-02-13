@@ -12,6 +12,9 @@ const FALLBACK_GAMES = [
 
 let allGames = [];
 let listenersBound = false;
+let instantSearchTimer = null;
+let latestInstantQuery = '';
+const userSearchCache = new Map();
 
 async function loadGames() {
     try {
@@ -90,8 +93,49 @@ function searchGamesLogic(query) {
     });
 }
 
-function handleInstantSearch(query) {
+async function searchUsersLogic(query) {
+    const safeQuery = (query || '').trim();
+    if (safeQuery.length < 2) return [];
+    if (!window.Services?.friend?.searchUsers) return [];
+
+    const cacheKey = safeQuery.toLowerCase();
+    if (userSearchCache.has(cacheKey)) {
+        return userSearchCache.get(cacheKey);
+    }
+
+    try {
+        const users = await window.Services.friend.searchUsers(safeQuery);
+        const normalized = (users || [])
+            .filter(user => user && user.uid)
+            .map(user => ({
+                uid: user.uid,
+                username: user.username || 'Player',
+                avatar: user.avatar || ''
+            }));
+        userSearchCache.set(cacheKey, normalized);
+        return normalized;
+    } catch (error) {
+        return [];
+    }
+}
+
+function escapeSearchHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeSearchAttr(value) {
+    return String(value || '').replace(/'/g, "\\'");
+}
+
+async function handleInstantSearch(query) {
     const dropdown = document.getElementById('searchResultsDropdown');
+    latestInstantQuery = query;
+    const querySnapshot = query;
 
     if (query.length === 0) {
         dropdown.classList.remove('visible');
@@ -100,12 +144,51 @@ function handleInstantSearch(query) {
     }
 
     const results = searchGamesLogic(query);
+    const users = await searchUsersLogic(query);
+    if (querySnapshot !== latestInstantQuery) return;
     const topResults = results.slice(0, 5);
+    const topUsers = users.slice(0, 3);
 
-    if (results.length > 0) {
+    if (results.length > 0 || users.length > 0) {
         dropdown.innerHTML = '';
         dropdown.classList.remove('hidden');
         dropdown.classList.add('visible');
+
+        if (topUsers.length) {
+            const usersLabel = document.createElement('div');
+            usersLabel.className = 'px-3 py-2 text-[10px] font-black tracking-widest uppercase text-sky-300 bg-sky-500/10 border-b border-white/5';
+            usersLabel.innerText = 'Players';
+            dropdown.appendChild(usersLabel);
+
+            topUsers.forEach((user) => {
+                const div = document.createElement('div');
+                div.className = 'search-result-item';
+                div.onclick = () => {
+                    if (typeof window.openUserProfile === 'function') {
+                        window.openUserProfile(user.uid);
+                    }
+                    dropdown.classList.remove('visible');
+                    dropdown.classList.add('hidden');
+                    const searchInput = document.getElementById('gameSearch');
+                    if (searchInput) searchInput.value = '';
+                };
+                div.innerHTML = `
+                    <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="${escapeSearchHtml(user.username)}">
+                    <div>
+                        <div class="text-white font-bold text-sm">${escapeSearchHtml(user.username)}</div>
+                        <div class="text-xs text-sky-300 uppercase tracking-wider">Player</div>
+                    </div>
+                `;
+                dropdown.appendChild(div);
+            });
+        }
+
+        if (topResults.length) {
+            const gamesLabel = document.createElement('div');
+            gamesLabel.className = 'px-3 py-2 text-[10px] font-black tracking-widest uppercase text-purple-300 bg-purple-500/10 border-y border-white/5';
+            gamesLabel.innerText = 'Games';
+            dropdown.appendChild(gamesLabel);
+        }
 
         topResults.forEach(game => {
             const div = document.createElement('div');
@@ -129,10 +212,11 @@ function handleInstantSearch(query) {
             dropdown.appendChild(div);
         });
 
-        if (results.length > 5) {
+        const totalCount = results.length + users.length;
+        if (results.length > 5 || users.length > 3) {
             const viewAll = document.createElement('div');
             viewAll.className = 'search-view-all';
-            viewAll.innerText = `View all ${results.length} results`;
+            viewAll.innerText = `View all ${totalCount} results`;
             viewAll.onclick = () => {
                 openSearchPage(query);
                 dropdown.classList.remove('visible');
@@ -154,7 +238,11 @@ function setupEventListeners() {
     // --- Search Input Logic ---
     if (searchInput) {
         searchInput.addEventListener('input', (e) => {
-            handleInstantSearch(e.target.value.trim());
+            const term = e.target.value.trim();
+            if (instantSearchTimer) clearTimeout(instantSearchTimer);
+            instantSearchTimer = setTimeout(() => {
+                handleInstantSearch(term);
+            }, 180);
         });
 
         searchInput.addEventListener('keydown', (e) => {
@@ -427,10 +515,8 @@ function openSearchPage(query = '') {
     overlay.classList.remove('hidden');
     setTimeout(() => { overlay.classList.remove('opacity-0', 'scale-95'); }, 10);
 
-    if (query) {
-        input.value = query;
-        performFullSearch(query);
-    }
+    if (query) input.value = query;
+    performFullSearch(input.value || '');
     input.focus();
     document.body.style.overflow = 'hidden';
 }
@@ -442,12 +528,54 @@ function closeSearchPage() {
     document.body.style.overflow = 'auto';
 }
 
-function performFullSearch(query) {
+async function performFullSearch(query) {
     if (typeof query !== 'string') query = document.getElementById('bigSearchInput').value;
-    const results = searchGamesLogic(query);
+    const safeQuery = query.trim();
+    const results = searchGamesLogic(safeQuery);
+    const users = await searchUsersLogic(safeQuery);
     const countEl = document.getElementById('searchResultCount');
+    const userCountEl = document.getElementById('searchUserCount');
     if (countEl) countEl.innerText = `${results.length} Found`;
+    if (userCountEl) userCountEl.innerText = `${users.length} Found`;
+    renderUserSearchResults(users, safeQuery);
     renderFullSearchResults(results);
+}
+
+function renderUserSearchResults(users, query) {
+    const section = document.getElementById('fullSearchUsersSection');
+    const list = document.getElementById('fullSearchUsersList');
+    if (!section || !list) return;
+
+    if (!query || query.length < 2) {
+        section.classList.add('hidden');
+        list.innerHTML = '';
+        return;
+    }
+
+    section.classList.remove('hidden');
+
+    if (!users.length) {
+        list.innerHTML = '<div class="text-sm text-gray-500 bg-white/5 border border-white/10 rounded-xl px-4 py-3">No players found.</div>';
+        return;
+    }
+
+    list.innerHTML = users.map((user) => {
+        const safeUid = escapeSearchAttr(user.uid);
+        const safeName = escapeSearchHtml(user.username || 'Player');
+        const safeAvatar = escapeSearchAttr(user.avatar || 'assets/icons/logo.jpg');
+        return `
+            <div class="bg-white/5 border border-white/10 hover:border-sky-400/40 rounded-xl px-3 py-2 flex items-center justify-between gap-3 transition-all">
+                <button onclick="window.openUserProfile('${safeUid}'); closeSearchPage();" class="flex items-center gap-3 min-w-0 text-left">
+                    <img src="${safeAvatar}" alt="${safeName}" class="w-10 h-10 rounded-full object-cover border border-white/10">
+                    <div class="min-w-0">
+                        <div class="text-sm font-bold text-white truncate">${safeName}</div>
+                        <div class="text-[11px] text-sky-300 uppercase tracking-wider">Player</div>
+                    </div>
+                </button>
+                <button onclick="window.openUserProfile('${safeUid}'); closeSearchPage();" class="px-3 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/30 text-xs font-bold text-sky-200">View</button>
+            </div>
+        `;
+    }).join('');
 }
 
 function renderFullSearchResults(games) {

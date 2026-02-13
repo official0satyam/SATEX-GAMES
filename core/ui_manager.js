@@ -21,6 +21,10 @@ window.chatState = {
     viewedProfileData: null,
     viewedProfileRelation: null,
     mobileListOpen: false,
+    mobileDmConversationOpen: false,
+    feedFollowingOnly: false,
+    followedUsers: [],
+    followedUsersLoadedFor: null,
     sentRequests: {},
     feedComposerFiles: [],
     profileUpload: {
@@ -74,6 +78,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.chatState.sentRequests = {};
             window.chatState.feedComposerFiles = [];
             window.chatState.profileUpload = { avatarUrl: '', coverUrl: '' };
+            window.chatState.feedFollowingOnly = false;
+            window.chatState.followedUsers = [];
+            window.chatState.followedUsersLoadedFor = null;
             window.chatState.viewedProfileUid = null;
             window.chatState.viewedProfileData = null;
             window.chatState.viewedProfileRelation = null;
@@ -169,6 +176,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
     }
 
+    window.addEventListener('resize', () => {
+        if (isChatViewActive()) updateMobileChatPanels();
+        syncMobileShellVisibility();
+    });
+
     setTimeout(() => {
         if (!window.Services?.auth) {
             console.error("[UI] Services module failed to initialize. Auth unavailable.");
@@ -211,6 +223,7 @@ function _renderView(viewName, isPush) {
         window.Services?.chat?.stopDmThreads?.();
         window.Services?.chat?.stopGlobalChat?.();
         window.Services?.friend?.stopOnlineUsers?.();
+        window.chatState.mobileDmConversationOpen = false;
     }
     if (previousView === 'social' && viewName !== 'social') {
         cleanupFeedCommentListeners();
@@ -236,6 +249,7 @@ function _renderView(viewName, isPush) {
     if (!target) {
         document.getElementById('view-home')?.classList.add('active');
         window.chatState.currentView = 'home';
+        syncMobileShellVisibility();
         window.scrollTo(0, 0);
         return;
     }
@@ -246,6 +260,7 @@ function _renderView(viewName, isPush) {
     if (viewName === 'social') renderSocialFeed();
 
     window.chatState.currentView = viewName;
+    syncMobileShellVisibility();
     window.scrollTo(0, 0);
 }
 
@@ -262,6 +277,79 @@ function isSocialViewActive() {
 function isProfileViewActive() {
     const view = new URLSearchParams(window.location.search).get('view') || 'home';
     return view === 'profile' && document.getElementById('view-profile')?.classList.contains('active');
+}
+
+function isMobileViewport() {
+    return window.matchMedia('(max-width: 768px)').matches;
+}
+
+function syncMobileShellVisibility() {
+    const header = document.getElementById('appHeader') || document.querySelector('header.glass-header');
+    const bottomNav = document.getElementById('mobileBottomNav') || document.querySelector('nav.bottom-nav');
+    if (!header || !bottomNav) return;
+
+    const isMobile = isMobileViewport();
+    const inSocialView = window.chatState.currentView === 'social';
+    const inChatView = window.chatState.currentView === 'chat';
+    const inProfileView = window.chatState.currentView === 'profile';
+    const inDmConversation = inChatView
+        && window.activeChatTab === 'dms'
+        && Boolean(window.chatState.activeDmFriend)
+        && Boolean(window.chatState.mobileDmConversationOpen);
+    const shouldHideHeader = isMobile && (inSocialView || inChatView || inProfileView);
+
+    if (shouldHideHeader) {
+        header.classList.add('hidden');
+        if (inDmConversation) bottomNav.classList.add('hidden');
+        else bottomNav.classList.remove('hidden');
+        if (inDmConversation) document.body.classList.add('mobile-dm-focused');
+        else document.body.classList.remove('mobile-dm-focused');
+    } else {
+        header.classList.remove('hidden');
+        bottomNav.classList.remove('hidden');
+        document.body.classList.remove('mobile-dm-focused');
+    }
+}
+
+function renderMobileViewHeader(title = 'Section') {
+    return `
+        <div class="profile-v2-mobile-head md:hidden">
+            <button onclick="toggleSidebar()" class="profile-v2-mobile-btn" aria-label="Menu">
+                <i class="fas fa-bars"></i>
+            </button>
+            <h2 class="profile-v2-mobile-title">${escapeHtml(title)}</h2>
+            <button onclick="openSearchPage('')" class="profile-v2-mobile-btn" aria-label="Search">
+                <i class="fas fa-search"></i>
+            </button>
+        </div>
+    `;
+}
+
+function updateChatComposerState() {
+    const composer = document.getElementById('chat-input-container');
+    const input = document.getElementById('chatMsgInput');
+    if (!composer || !input) return;
+
+    const isMobile = isMobileViewport();
+    let showComposer = true;
+    if (window.activeChatTab === 'dms' && isMobile && !window.chatState.mobileDmConversationOpen) {
+        showComposer = false;
+    }
+    composer.classList.toggle('hidden', !showComposer);
+
+    if (window.activeChatTab === 'global') {
+        input.placeholder = "Message global chat...";
+        input.disabled = false;
+        return;
+    }
+    if (!window.chatState.activeDmFriend) {
+        input.placeholder = "Select a friend to start DM...";
+        input.disabled = true;
+        return;
+    }
+
+    input.placeholder = `Message ${window.chatState.activeDmFriend.username}...`;
+    input.disabled = false;
 }
 
 async function loadViewedProfile(uid) {
@@ -381,6 +469,7 @@ window.followViewedProfile = async function () {
     }
     try {
         await window.Services.user.followUser(targetUid, window.chatState.viewedProfileData || {});
+        window.chatState.followedUsersLoadedFor = null;
         window.chatState.viewedProfileRelation = {
             ...(window.chatState.viewedProfileRelation || {}),
             isFollowing: true
@@ -405,6 +494,7 @@ window.unfollowViewedProfile = async function () {
     }
     try {
         await window.Services.user.unfollowUser(targetUid);
+        window.chatState.followedUsersLoadedFor = null;
         window.chatState.viewedProfileRelation = {
             ...(window.chatState.viewedProfileRelation || {}),
             isFollowing: false
@@ -433,7 +523,7 @@ window.messageViewedProfile = function () {
 /*                              PROFILE RENDERER                              */
 /* -------------------------------------------------------------------------- */
 
-function renderProfile() {
+function renderProfileLegacy() {
     const container = document.getElementById('view-profile');
     if (!container) return;
 
@@ -445,6 +535,7 @@ function renderProfile() {
         const profile = window.chatState.viewedProfileData;
         if (!profile) {
             container.innerHTML = `
+                ${renderMobileViewHeader('Profile')}
                 <div class="flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
                     <i class="fas fa-user-circle text-6xl text-gray-700 mb-4"></i>
                     <h2 class="text-xl font-bold text-white mb-2">Loading profile...</h2>
@@ -476,7 +567,7 @@ function renderProfile() {
         container.innerHTML = `
             <div class="profile-header group relative">
                 <img src="${profile.cover_photo || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop'}" class="banner-img">
-                <div class="absolute top-4 right-4 flex gap-2">
+                <div class="profile-action-row absolute top-4 right-4 flex gap-2">
                     <button onclick="window.openMyProfile()" class="bg-white/15 hover:bg-white/25 text-white px-4 py-2 rounded-lg text-xs font-bold backdrop-blur-sm transition-all shadow-lg">
                         <i class="fas fa-arrow-left mr-1"></i> BACK
                     </button>
@@ -488,7 +579,7 @@ function renderProfile() {
                     <div class="level-badge-large">LVL ${profile.level || 1}</div>
                 </div>
             </div>
-            <div class="px-4 md:px-0 mt-16 md:mt-0 space-y-6">
+            <div class="profile-main-content px-4 md:px-0 mt-16 md:mt-0 space-y-6">
                 <div>
                     <h2 class="text-3xl font-black text-white tracking-tight">${escapeHtml(profile.display_name || profile.username || 'Player')}</h2>
                     <p class="text-sm text-gray-400 mt-2 max-w-2xl">${escapeHtml(profile.bio || 'No bio yet.')}</p>
@@ -543,7 +634,7 @@ function renderProfile() {
     container.innerHTML = `
         <div class="profile-header group relative">
             <img src="${userData.cover_photo || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop'}" class="banner-img">
-            <div class="absolute top-4 right-4 flex gap-2">
+            <div class="profile-action-row absolute top-4 right-4 flex gap-2">
                 <button onclick="window.openEditProfileModal()" class="bg-white/15 hover:bg-white/25 text-white px-4 py-2 rounded-lg text-xs font-bold backdrop-blur-sm transition-all shadow-lg">
                     <i class="fas fa-pen mr-1"></i> EDIT
                 </button>
@@ -559,7 +650,7 @@ function renderProfile() {
             </div>
         </div>
 
-        <div class="px-4 md:px-0 mt-16 md:mt-0 space-y-8">
+        <div class="profile-main-content px-4 md:px-0 mt-16 md:mt-0 space-y-8">
             <div>
                 <h2 class="text-3xl font-black text-white tracking-tight">${escapeHtml(userData.display_name || userData.username || 'Player')}</h2>
                 <p class="text-sm text-gray-400 mt-2 max-w-2xl">${escapeHtml(userData.bio || 'No bio yet. Click edit profile to add one.')}</p>
@@ -620,6 +711,277 @@ function renderProfile() {
     `;
 }
 
+function renderProfile() {
+    const container = document.getElementById('view-profile');
+    if (!container) return;
+
+    const currentUser = window.Services?.state?.currentUser || null;
+    const viewedUid = window.chatState.viewedProfileUid;
+    const isViewingOther = Boolean(viewedUid && (!currentUser || viewedUid !== currentUser.uid));
+
+    if (isViewingOther) {
+        const profile = window.chatState.viewedProfileData;
+        if (!profile) {
+            container.innerHTML = `
+                ${renderMobileViewHeader('Profile')}
+                <div class="flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
+                    <i class="fas fa-user-circle text-6xl text-gray-700 mb-4"></i>
+                    <h2 class="text-xl font-bold text-white mb-2">Loading profile...</h2>
+                    <p class="text-sm text-gray-500">Fetching player details.</p>
+                    <button onclick="window.openMyProfile()" class="mt-4 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold">Back</button>
+                </div>
+            `;
+            loadViewedProfile(viewedUid);
+            return;
+        }
+
+        const relation = window.chatState.viewedProfileRelation || {};
+        const relationPending = relation.outgoingRequest || window.chatState.sentRequests[viewedUid];
+        const statusState = String(profile.status?.state || 'offline').toLowerCase();
+        const statusClass = statusState === 'online' ? 'online' : statusState === 'away' ? 'away' : 'offline';
+        const xp = Number(profile.xp || 0);
+        const level = Number(profile.level || 1);
+        const xpProgress = Math.max(6, Math.min(100, Math.round((xp % 1000) / 10)));
+        const viewedFavoriteGames = resolveFavoriteGames(profile.favorite_games || []).slice(0, 8);
+        const gameCount = Number(profile.games_played || viewedFavoriteGames.length || 0);
+        const achievementsHtml = renderProfileAchievements(profile.achievements || [], false);
+
+        const followAction = !currentUser
+            ? `<button onclick="window.openAuthOverlay()" class="profile-v2-btn secondary">Login to Follow</button>`
+            : relation.isFollowing
+                ? `<button onclick="window.unfollowViewedProfile()" class="profile-v2-btn secondary"><i class="fas fa-user-minus mr-1"></i> Following</button>`
+                : `<button onclick="window.followViewedProfile()" class="profile-v2-btn primary"><i class="fas fa-user-check mr-1"></i> Follow</button>`;
+        const primaryAction = !currentUser
+            ? `<button onclick="window.openAuthOverlay()" class="profile-v2-btn primary">Login to Add Friend</button>`
+            : relation.isFriend
+                ? `<button onclick="window.messageViewedProfile()" class="profile-v2-btn primary"><i class="fas fa-paper-plane mr-1"></i> Message</button>`
+                : relation.incomingRequest
+                    ? `<button onclick="window.acceptViewedProfileRequest()" class="profile-v2-btn success"><i class="fas fa-check mr-1"></i> Accept Request</button>`
+                    : relationPending
+                        ? `<button class="profile-v2-btn muted" disabled>Request Sent</button>`
+                        : `<button onclick="window.sendFriendRequestFromViewedProfile()" class="profile-v2-btn primary"><i class="fas fa-user-plus mr-1"></i> Add Friend</button>`;
+
+        container.innerHTML = `
+            ${renderMobileViewHeader('Profile')}
+            <div class="profile-v2-root">
+                <aside class="profile-v2-hero glass-panel">
+                    <div class="profile-v2-cover">
+                        <img src="${profile.cover_photo || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop'}" class="cover-img">
+                    </div>
+                    <div class="profile-v2-top-actions">
+                        <button onclick="window.openMyProfile()" class="profile-v2-icon-btn">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                    </div>
+                    <div class="profile-v2-avatar-wrap">
+                        <div class="profile-v2-avatar-ring">
+                            <img src="${profile.avatar || 'assets/icons/logo.jpg'}" class="avatar-img">
+                            <span class="profile-v2-status-dot ${statusClass}"></span>
+                        </div>
+                        <div class="profile-v2-rank-pill">${escapeHtml(statusState.toUpperCase())}</div>
+                    </div>
+                    <div class="profile-v2-identity">
+                        <h1 class="profile-v2-name">${escapeHtml(profile.display_name || profile.username || 'Player')}</h1>
+                        <p class="profile-v2-handle">@${escapeHtml(profile.username || 'player')}</p>
+                        <div class="profile-v2-xp-wrap">
+                            <div class="profile-v2-xp-meta">
+                                <span>LEVEL ${level}</span>
+                                <span>${xp} XP</span>
+                            </div>
+                            <div class="profile-v2-xp-bg">
+                                <div class="profile-v2-xp-fill" style="width:${xpProgress}%"></div>
+                            </div>
+                        </div>
+                        <p class="profile-v2-bio">${escapeHtml(profile.bio || 'No bio yet.')}</p>
+                        <div class="profile-v2-stats-grid">
+                            <div class="profile-v2-stat-box">
+                                <div class="profile-v2-stat-value">${Number(profile.followers_count || 0)}</div>
+                                <div class="profile-v2-stat-label">Followers</div>
+                            </div>
+                            <div class="profile-v2-stat-box">
+                                <div class="profile-v2-stat-value">${Number(profile.following_count || 0)}</div>
+                                <div class="profile-v2-stat-label">Following</div>
+                            </div>
+                            <div class="profile-v2-stat-box">
+                                <div class="profile-v2-stat-value">${gameCount}</div>
+                                <div class="profile-v2-stat-label">Games</div>
+                            </div>
+                        </div>
+                        <div class="profile-v2-actions-row">
+                            ${followAction}
+                            ${primaryAction}
+                        </div>
+                        <div class="profile-v2-meta-tags">
+                            ${relation.isFriend ? `<span class="profile-v2-tag friend">Friends</span>` : ''}
+                            ${relation.followsYou ? `<span class="profile-v2-tag info">Follows You</span>` : ''}
+                        </div>
+                    </div>
+                </aside>
+
+                <main class="profile-v2-content">
+                    <section class="mb-8">
+                        <div class="profile-v2-section-head">
+                            <h3 class="profile-v2-title"><i class="fas fa-trophy text-yellow-500"></i> Achievements</h3>
+                            <span class="profile-v2-count-chip">${Array.isArray(profile.achievements) ? profile.achievements.length : 0} Unlocked</span>
+                        </div>
+                        <div class="profile-v2-badges">
+                            ${achievementsHtml}
+                        </div>
+                    </section>
+                    <section class="mb-8">
+                        <div class="profile-v2-section-head">
+                            <h3 class="profile-v2-title"><i class="fas fa-gamepad text-purple-400"></i> Favorite Games</h3>
+                            <span class="text-xs text-gray-500">${viewedFavoriteGames.length} Visible</span>
+                        </div>
+                        ${viewedFavoriteGames.length ? `
+                            <div class="profile-v2-games-scroll">
+                                ${viewedFavoriteGames.map(game => renderProfileGameCard(game, false, false)).join('')}
+                            </div>
+                        ` : `<div class="profile-v2-empty">No favorite games visible yet.</div>`}
+                    </section>
+                </main>
+            </div>
+        `;
+        return;
+    }
+
+    if (!currentUser) {
+        container.innerHTML = `
+            ${renderMobileViewHeader('Profile')}
+            <div class="flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
+                <i class="fas fa-lock text-6xl text-gray-700 mb-6"></i>
+                <h2 class="text-2xl font-bold text-white mb-2">Member Access Only</h2>
+                <p class="text-gray-500 mb-8 max-w-xs">Viewing profiles requires an active Satex Games account.</p>
+                <button onclick="window.openAuthOverlay()" class="px-8 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white shadow-lg shadow-purple-900/40 transition-all transform hover:scale-105">
+                    Login / Signup
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    const userData = window.currentUserData || { username: 'Loading...', level: 1, xp: 0 };
+    const recentGames = getRecentGames().slice(0, 8);
+    const favoriteIds = new Set((userData.favorite_games || []).map(id => String(id || '').trim().toLowerCase()).filter(Boolean));
+    const favoriteGames = resolveFavoriteGames(userData.favorite_games || []).slice(0, 8);
+    const statusState = String(userData.status?.state || 'offline').toLowerCase();
+    const statusClass = statusState === 'online' ? 'online' : statusState === 'away' ? 'away' : 'offline';
+    const xp = Number(userData.xp || 0);
+    const level = Number(userData.level || 1);
+    const xpProgress = Math.max(6, Math.min(100, Math.round((xp % 1000) / 10)));
+    const achievementsHtml = renderProfileAchievements(userData.achievements || [], true);
+
+    container.innerHTML = `
+        ${renderMobileViewHeader('Profile')}
+        <div class="profile-v2-root">
+            <aside class="profile-v2-hero glass-panel">
+                <div class="profile-v2-cover">
+                    <img src="${userData.cover_photo || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop'}" class="cover-img">
+                </div>
+                <div class="profile-v2-top-actions">
+                    <button onclick="window.openEditProfileModal()" class="profile-v2-icon-btn">
+                        <i class="fas fa-pen"></i>
+                    </button>
+                    <button onclick="window.handleLogout()" class="profile-v2-icon-btn danger">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+                <div class="profile-v2-avatar-wrap">
+                    <div class="profile-v2-avatar-ring">
+                        <img src="${userData.avatar || 'assets/icons/logo.jpg'}" class="avatar-img">
+                        <span class="profile-v2-status-dot ${statusClass}"></span>
+                    </div>
+                    <div class="profile-v2-rank-pill">LEVEL ${level}</div>
+                </div>
+                <div class="profile-v2-identity">
+                    <h1 class="profile-v2-name">${escapeHtml(userData.display_name || userData.username || 'Player')}</h1>
+                    <p class="profile-v2-handle">@${escapeHtml(userData.username || 'player')}</p>
+                    <div class="profile-v2-xp-wrap">
+                        <div class="profile-v2-xp-meta">
+                            <span>LEVEL ${level}</span>
+                            <span>${xp} XP</span>
+                        </div>
+                        <div class="profile-v2-xp-bg">
+                            <div class="profile-v2-xp-fill" style="width:${xpProgress}%"></div>
+                        </div>
+                    </div>
+                    <p class="profile-v2-bio">${escapeHtml(userData.bio || 'No bio yet. Click edit profile to add one.')}</p>
+                    <div class="profile-v2-stats-grid">
+                        <div class="profile-v2-stat-box">
+                            <div class="profile-v2-stat-value">${Number(userData.followers_count || 0)}</div>
+                            <div class="profile-v2-stat-label">Followers</div>
+                        </div>
+                        <div class="profile-v2-stat-box">
+                            <div class="profile-v2-stat-value">${Number(userData.following_count || 0)}</div>
+                            <div class="profile-v2-stat-label">Following</div>
+                        </div>
+                        <div class="profile-v2-stat-box">
+                            <div class="profile-v2-stat-value">${Number(userData.games_played || 0)}</div>
+                            <div class="profile-v2-stat-label">Games</div>
+                        </div>
+                    </div>
+                    <div class="profile-v2-actions-row">
+                        <button onclick="window.openEditProfileModal()" class="profile-v2-btn primary"><i class="fas fa-user-edit mr-1"></i> Edit Profile</button>
+                        <button onclick="window.handleLogout()" class="profile-v2-btn danger"><i class="fas fa-sign-out-alt mr-1"></i> Logout</button>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="profile-v2-content">
+                <section class="mb-8">
+                    <div class="profile-v2-section-head">
+                        <h3 class="profile-v2-title"><i class="fas fa-trophy text-yellow-500"></i> Achievements</h3>
+                        <span class="profile-v2-count-chip">${Array.isArray(userData.achievements) ? userData.achievements.length : 0} Unlocked</span>
+                    </div>
+                    <div class="profile-v2-badges">
+                        ${achievementsHtml}
+                    </div>
+                </section>
+
+                <section class="mb-8">
+                    <div class="profile-v2-section-head">
+                        <h3 class="profile-v2-title"><i class="fas fa-heart text-pink-400"></i> Favorite Games</h3>
+                        <span class="text-xs text-gray-500">Tap heart to remove</span>
+                    </div>
+                    ${favoriteGames.length ? `
+                        <div class="profile-v2-games-scroll">
+                            ${favoriteGames.map(game => renderProfileGameCard(game, true, true)).join('')}
+                        </div>
+                    ` : `<div class="profile-v2-empty">No favorite games yet. Add from recent games below.</div>`}
+                </section>
+
+                <section class="mb-8">
+                    <div class="profile-v2-section-head">
+                        <h3 class="profile-v2-title"><i class="fas fa-clock-rotate-left text-blue-400"></i> Recent Games</h3>
+                        <span class="text-xs text-gray-500">Keep your profile active by playing</span>
+                    </div>
+                    ${recentGames.length ? `
+                        <div class="profile-v2-games-scroll">
+                            ${recentGames.map(game => renderProfileGameCard(game, isGameFavorited(favoriteIds, game), true)).join('')}
+                        </div>
+                    ` : `<div class="profile-v2-empty">No recent games found yet.</div>`}
+                </section>
+            </main>
+        </div>
+    `;
+}
+
+function renderProfileAchievements(achievements, isOwn) {
+    if (!Array.isArray(achievements) || !achievements.length) {
+        return `<div class="text-xs text-gray-500">${isOwn ? 'Play more games to unlock badges.' : 'No achievements visible yet.'}</div>`;
+    }
+
+    return achievements.slice(0, 12).map((badge, idx) => {
+        const label = typeof badge === 'string' ? badge : (badge?.label || badge?.name || `Badge ${idx + 1}`);
+        const icon = badge?.icon || 'fa-award';
+        return `
+            <div class="profile-v2-badge" title="${escapeAttr(label)}">
+                <i class="fas ${escapeAttr(icon)}"></i>
+            </div>
+        `;
+    }).join('');
+}
+
 /* -------------------------------------------------------------------------- */
 /*                           CHAT & SOCIAL RENDERER                           */
 /* -------------------------------------------------------------------------- */
@@ -645,16 +1007,29 @@ function renderChatInterface() {
             </div>
 
             <div class="chat-view-panel">
-                <div class="md:hidden mobile-chat-tabs border-b border-white/5 gap-2 overflow-x-auto p-2">
-                    <button onclick="switchChatTab('global')" id="tab-mobile-global" class="px-4 py-2 rounded-lg text-xs font-bold">Global</button>
-                    <button onclick="switchChatTab('dms')" id="tab-mobile-dms" class="px-4 py-2 rounded-lg text-xs font-bold">DMs</button>
+                <div class="md:hidden mobile-chat-tabs border-b border-white/5 p-2">
+                    <div class="flex-1 flex bg-black/20 p-1 rounded-xl">
+                        <button onclick="switchChatTab('global')" id="tab-mobile-global" class="flex-1 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Global</button>
+                        <button onclick="switchChatTab('dms')" id="tab-mobile-dms" class="flex-1 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">DMs</button>
+                    </div>
+                    <button onclick="openSearchPage('')" class="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+                <div id="mobile-dm-conversation-header" class="hidden md:hidden border-b border-white/10 bg-black/80 backdrop-blur-md px-3 py-2">
+                    <div class="flex items-center gap-2">
+                        <button onclick="window.closeMobileDmConversation()" class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-gray-200">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <button id="mobileDmHeaderProfileBtn" class="flex-1 min-w-0 flex items-center gap-2 text-left"></button>
+                    </div>
                 </div>
                 <div id="mobile-global-strip" class="md:hidden px-2 pb-2 border-b border-white/5"></div>
                 <div id="mobile-dm-list-panel" class="md:hidden px-2 pb-2 border-b border-white/5 hidden"></div>
 
                 <div id="chat-messages-area" class="flex-1 overflow-y-auto p-4 content-start chat-messages-area"></div>
 
-                <div class="chat-input-container border-t border-white/5">
+                <div id="chat-input-container" class="chat-input-container border-t border-white/5">
                     <div class="flex gap-2">
                         <input type="text" id="chatMsgInput" placeholder="Message global chat..." class="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500/50">
                         <button onclick="window.sendMsg()" class="w-12 h-12 bg-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg">
@@ -683,7 +1058,164 @@ function renderChatInterface() {
     }
     renderChatListContent();
     updateMobileListVisibility();
-    window.switchChatTab(window.activeChatTab || 'global', true);
+    window.switchChatTab(window.activeChatTab || 'global', true, window.chatState.mobileDmConversationOpen);
+}
+
+async function ensureFollowingUsersLoaded(force = false) {
+    const uid = window.Services?.state?.currentUser?.uid || null;
+    if (!uid) {
+        window.chatState.followedUsers = [];
+        window.chatState.followedUsersLoadedFor = null;
+        return [];
+    }
+    if (!force && window.chatState.followedUsersLoadedFor === uid && Array.isArray(window.chatState.followedUsers)) {
+        return window.chatState.followedUsers;
+    }
+    try {
+        const users = await window.Services?.user?.listFollowingUsers?.(30);
+        window.chatState.followedUsers = Array.isArray(users) ? users : [];
+        window.chatState.followedUsersLoadedFor = uid;
+        return window.chatState.followedUsers;
+    } catch (e) {
+        console.error("[FEED] following list error:", e);
+        return window.chatState.followedUsers || [];
+    }
+}
+
+function renderFollowedUsersPanels() {
+    const desktopList = document.getElementById('social-following-list');
+    const mobileList = document.getElementById('social-mobile-following');
+    const storyList = document.getElementById('social-story-rail');
+    const suggestions = document.getElementById('social-suggestion-list');
+    const followed = window.chatState.followedUsers || [];
+    const onlineUsers = (window.chatState.onlineUsers || []).filter(user => user?.uid);
+    const discoverUsers = followed.length
+        ? followed
+        : onlineUsers.filter(user => user.uid !== window.Services?.state?.currentUser?.uid);
+    const storyUsers = discoverUsers.slice(0, 18);
+
+    const itemsHtml = followed.length
+        ? followed.slice(0, 20).map(user => `
+            <button onclick="window.openUserProfile('${escapeAttr(user.uid)}')" class="w-full bg-black/20 border border-white/10 hover:border-purple-500/40 rounded-lg p-2 flex items-center gap-2 transition-all text-left">
+                <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-white/10">
+                <div class="min-w-0">
+                    <div class="text-xs font-bold text-gray-200 truncate">${escapeHtml(user.username || 'Player')}</div>
+                    <div class="text-[10px] text-gray-500">Following</div>
+                </div>
+            </button>
+        `).join('')
+        : '<div class="text-xs text-gray-500">Follow players to customize your feed.</div>';
+
+    if (desktopList) desktopList.innerHTML = itemsHtml;
+    if (mobileList) {
+        mobileList.innerHTML = followed.length
+            ? followed.slice(0, 12).map(user => `
+                <button onclick="window.openUserProfile('${escapeAttr(user.uid)}')" class="flex-shrink-0 w-16 text-center">
+                    <div class="w-12 h-12 rounded-full overflow-hidden border border-white/15 mx-auto">
+                        <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-12 h-12 object-cover">
+                    </div>
+                    <div class="text-[10px] text-gray-300 truncate mt-1">${escapeHtml(user.username || 'Player')}</div>
+                </button>
+            `).join('')
+            : '<div class="text-xs text-gray-500 px-1">No followed players yet.</div>';
+    }
+
+    if (storyList) {
+        const currentAvatar = window.currentUserData?.avatar || 'assets/icons/logo.jpg';
+        const currentUid = window.Services?.state?.currentUser?.uid || '';
+        storyList.innerHTML = `
+            <button onclick="${currentUid ? `window.openUserProfile('${escapeAttr(currentUid)}')` : `window.switchView('profile')`}" class="feed-v2-story-item">
+                <div class="feed-v2-story-ring add">
+                    <img src="${currentAvatar}" alt="avatar" class="feed-v2-story-img">
+                </div>
+                <span class="feed-v2-story-name">You</span>
+            </button>
+            ${storyUsers.map(user => `
+                <button onclick="window.openUserProfile('${escapeAttr(user.uid)}')" class="feed-v2-story-item">
+                    <div class="feed-v2-story-ring">
+                        <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="feed-v2-story-img">
+                    </div>
+                    <span class="feed-v2-story-name">${escapeHtml(user.username || 'Player')}</span>
+                </button>
+            `).join('')}
+        `;
+    }
+
+    if (suggestions) {
+        suggestions.innerHTML = discoverUsers.length
+            ? discoverUsers.slice(0, 5).map(user => `
+                <div class="feed-v2-suggest-row">
+                    <button onclick="window.openUserProfile('${escapeAttr(user.uid)}')" class="feed-v2-suggest-user">
+                        <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="feed-v2-suggest-avatar">
+                        <div class="min-w-0">
+                            <div class="feed-v2-suggest-name">${escapeHtml(user.username || 'Player')}</div>
+                            <div class="feed-v2-suggest-meta">${followed.length ? 'Following' : 'Online now'}</div>
+                        </div>
+                    </button>
+                    <button onclick="window.openUserProfile('${escapeAttr(user.uid)}')" class="feed-v2-follow-btn">View</button>
+                </div>
+            `).join('')
+            : '<div class="text-xs text-gray-500">Follow players to personalize your feed.</div>';
+    }
+}
+
+function updateFeedFollowingToggle() {
+    const btn = document.getElementById('feed-following-toggle');
+    const label = document.getElementById('feed-following-toggle-label');
+    const mobileBtn = document.getElementById('feed-following-toggle-mobile');
+    const mobileLabel = document.getElementById('feed-following-toggle-label-mobile');
+    const globalBtn = document.getElementById('feed-filter-global');
+    const isFollowingOnly = window.chatState.feedFollowingOnly;
+
+    if (btn) {
+        btn.className = isFollowingOnly ? 'feed-v2-chip active' : 'feed-v2-chip';
+    }
+    if (label) {
+        label.textContent = 'Following';
+    }
+
+    if (mobileBtn) {
+        mobileBtn.className = isFollowingOnly ? 'feed-v2-chip active' : 'feed-v2-chip';
+    }
+    if (mobileLabel) {
+        mobileLabel.textContent = 'Following';
+    }
+
+    if (globalBtn) {
+        globalBtn.className = isFollowingOnly ? 'feed-v2-chip' : 'feed-v2-chip active';
+    }
+}
+
+window.setFeedFilterMode = function (mode = 'global') {
+    window.chatState.feedFollowingOnly = mode === 'following';
+    updateFeedFollowingToggle();
+    renderFeedPosts();
+};
+
+window.toggleFeedFollowingOnly = function () {
+    window.setFeedFilterMode(window.chatState.feedFollowingOnly ? 'global' : 'following');
+};
+
+function renderFeedTrendingGames() {
+    const container = document.getElementById('social-trending-games');
+    if (!container) return;
+    const games = [...(window.Services?.state?.gameLibrary || window.allGames || [])]
+        .slice(0, 6);
+
+    if (!games.length) {
+        container.innerHTML = '<div class="text-xs text-gray-500">No games loaded yet.</div>';
+        return;
+    }
+
+    container.innerHTML = games.slice(0, 4).map((game, idx) => `
+        <button onclick="playGame('${escapeAttr(game.url || game.path || '')}','${escapeAttr(game.title || 'Game')}')" class="feed-v2-trend-row">
+            <div class="feed-v2-trend-rank">#${idx + 1}</div>
+            <div class="min-w-0 text-left">
+                <div class="feed-v2-trend-title">${escapeHtml(game.title || 'Game')}</div>
+                <div class="feed-v2-trend-meta">${escapeHtml(game.category || 'Arcade')}</div>
+            </div>
+        </button>
+    `).join('');
 }
 
 function renderSocialFeed(isUpdate = false) {
@@ -692,46 +1224,94 @@ function renderSocialFeed(isUpdate = false) {
 
     if (!isUpdate || !document.getElementById('social-feed-content')) {
         container.innerHTML = `
-            <div class="chat-layout">
-                <div class="chat-list-panel">
-                    <div class="p-4 border-b border-white/5">
-                        <h2 class="text-xl font-black text-white px-2">Social Hub</h2>
+            <div class="feed-v2-layout">
+                <aside class="feed-v2-left rail-panel hidden lg:block">
+                    <h2 class="feed-v2-side-title">Social Hub</h2>
+                    <button onclick="switchView('profile')" class="feed-v2-profile-link">
+                        <div class="feed-v2-profile-dot"></div>
+                        <span>My Profile</span>
+                    </button>
+                    <button onclick="window.setFeedFilterMode('following')" id="feed-following-toggle" class="feed-v2-chip">
+                        <span id="feed-following-toggle-label">Following</span>
+                    </button>
+                    <div class="feed-v2-side-block">
+                        <div class="feed-v2-side-label">Following</div>
+                        <div id="social-following-list" class="space-y-2"></div>
                     </div>
-                    <div class="p-4">
-                        <button onclick="switchView('profile')" class="w-full bg-white/5 hover:bg-white/10 text-white rounded-xl p-3 flex items-center gap-3 transition-all mb-2">
-                            <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500"></div>
-                            <span class="font-bold text-sm">My Profile</span>
+                </aside>
+
+                <main class="feed-v2-main">
+                    <div class="feed-v2-mobile-head">
+                        <button onclick="toggleSidebar()" class="feed-v2-mobile-menu" aria-label="Menu">
+                            <i class="fas fa-bars"></i>
+                        </button>
+                        <h2 class="feed-v2-main-title">Activity Feed</h2>
+                        <button onclick="openSearchPage('')" class="feed-v2-mobile-search">
+                            <i class="fas fa-search"></i>
                         </button>
                     </div>
-                </div>
 
-                <div class="chat-view-panel overflow-y-auto">
-                    <div class="p-6 max-w-2xl mx-auto w-full">
-                        <h2 class="text-2xl font-black text-white mb-6">Activity Feed</h2>
-                        <div class="bg-white/5 border border-white/10 rounded-2xl p-4 mb-6">
-                            <textarea id="statusPostInput" maxlength="260" placeholder="Share a status update..." class="w-full h-24 bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white resize-none focus:outline-none focus:border-purple-500/50"></textarea>
-                            <label for="statusImageFiles" class="mt-3 flex items-center justify-center gap-2 w-full border border-dashed border-white/20 rounded-xl px-4 py-3 text-xs font-bold text-gray-300 hover:border-purple-500/50 cursor-pointer transition-all">
-                                <i class="fas fa-upload"></i>
-                                Upload Image(s)
-                            </label>
-                            <input id="statusImageFiles" type="file" accept="image/*" multiple class="hidden" onchange="window.handleFeedImageSelection(event)">
-                            <div id="statusImagePreview" class="hidden mt-3 grid grid-cols-3 gap-2"></div>
-                            <div class="flex items-center justify-between mt-3">
-                                <span id="statusImageMeta" class="text-[11px] text-gray-500">Text posts are enabled</span>
-                                <button onclick="window.publishStatusPost()" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white">
-                                    Post Update
-                                </button>
+                    <div id="social-story-rail" class="feed-v2-stories"></div>
+
+                    <div class="feed-v2-composer rail-panel">
+                        <textarea id="statusPostInput" maxlength="260" placeholder="What's on your mind?" class="feed-v2-composer-input"></textarea>
+                        <div class="feed-v2-composer-row">
+                            <div class="flex items-center gap-2">
+                                <label for="statusImageFiles" class="feed-v2-icon-action" title="Image"><i class="far fa-image"></i></label>
+                                <button onclick="openSearchPage('')" class="feed-v2-icon-action" title="Tag Game"><i class="fas fa-gamepad"></i></button>
+                                <button type="button" class="feed-v2-icon-action" title="Sticker"><i class="fas fa-note-sticky"></i></button>
                             </div>
+                            <button onclick="window.publishStatusPost()" class="feed-v2-post-btn">Post</button>
                         </div>
-                        <div id="social-feed-content" class="social-feed"></div>
+                        <input id="statusImageFiles" type="file" accept="image/*" multiple class="hidden" onchange="window.handleFeedImageSelection(event)">
+                        <div id="statusImagePreview" class="hidden mt-3 grid grid-cols-3 gap-2"></div>
+                        <div id="statusImageMeta" class="text-[11px] text-gray-500 mt-2">Text posts are enabled</div>
                     </div>
-                </div>
+
+                    <div class="feed-v2-filters">
+                        <button onclick="window.setFeedFilterMode('global')" class="feed-v2-chip" id="feed-filter-global">Global</button>
+                        <button onclick="window.setFeedFilterMode('following')" id="feed-following-toggle-mobile" class="feed-v2-chip">
+                            <span id="feed-following-toggle-label-mobile">Following</span>
+                        </button>
+                        <button type="button" class="feed-v2-chip passive" title="Coming soon" disabled>Mentions</button>
+                        <button type="button" class="feed-v2-chip passive" title="Coming soon" disabled>VIPs</button>
+                    </div>
+
+                    <div class="lg:hidden mb-4">
+                        <div id="social-mobile-following" class="feed-v2-mobile-following"></div>
+                    </div>
+
+                    <div id="social-feed-content" class="feed-v2-stream"></div>
+                </main>
+
+                <aside class="feed-v2-right rail-panel hidden xl:block">
+                    <div class="feed-v2-side-block mb-4">
+                        <div class="feed-v2-side-label">Who to Follow</div>
+                        <div id="social-suggestion-list" class="space-y-2"></div>
+                    </div>
+                    <div class="feed-v2-side-block">
+                        <div class="feed-v2-side-label">Trending Games</div>
+                        <div id="social-trending-games" class="space-y-2"></div>
+                    </div>
+                </aside>
             </div>
         `;
     }
 
     window.Services?.feed?.listenToFeed?.();
+    ensureFollowingUsersLoaded().then(() => {
+        renderFollowedUsersPanels();
+        renderFeedTrendingGames();
+        renderFeedPosts();
+    });
     renderFeedComposerPreview();
+    updateFeedFollowingToggle();
+    const desktopToggle = document.getElementById('feed-following-toggle');
+    if (desktopToggle) desktopToggle.onclick = () => window.setFeedFilterMode('following');
+    const mobileToggle = document.getElementById('feed-following-toggle-mobile');
+    if (mobileToggle) mobileToggle.onclick = () => window.setFeedFilterMode('following');
+    const globalFilterBtn = document.getElementById('feed-filter-global');
+    if (globalFilterBtn) globalFilterBtn.onclick = () => window.setFeedFilterMode('global');
     renderFeedPosts();
 }
 
@@ -739,9 +1319,18 @@ function renderFeedPosts() {
     const feedContainer = document.getElementById('social-feed-content');
     if (!feedContainer) return;
 
-    const posts = (window.chatState.feedPosts || []).filter(post => post.type !== 'friend');
+    const currentUid = window.Services?.state?.currentUser?.uid || null;
+    const followingIds = new Set((window.chatState.followedUsers || []).map(user => user.uid).filter(Boolean));
+    const posts = (window.chatState.feedPosts || []).filter(post => {
+        if (post.type === 'friend') return false;
+        if (!window.chatState.feedFollowingOnly) return true;
+        const postUid = post?.user?.uid || null;
+        if (!postUid) return false;
+        if (currentUid && postUid === currentUid) return true;
+        return followingIds.has(postUid);
+    });
     if (!posts.length) {
-        feedContainer.innerHTML = `<div class="text-center text-gray-500 py-10">No activity yet.</div>`;
+        feedContainer.innerHTML = `<div class="feed-v2-empty">${window.chatState.feedFollowingOnly ? 'No activity from followed players yet.' : 'No activity yet.'}</div>`;
         return;
     }
 
@@ -757,46 +1346,55 @@ function renderFeedPosts() {
         const commentsExpanded = Boolean(window.chatState.expandedComments[post.id]);
         const totalComments = Number(post.comments || 0);
         const commentsPreview = commentsExpanded ? comments : comments.slice(-2);
+        const isLiked = false;
 
         return `
-            <div class="feed-item">
-                ${canOpenProfile
-                ? `<button onclick="window.openUserProfile('${safeUid}')" class="feed-avatar overflow-hidden border-0 p-0 bg-transparent">
-                        <img class="w-full h-full object-cover" src="${avatar}" alt="avatar">
-                    </button>`
-                : `<img class="feed-avatar" src="${avatar}" alt="avatar">`}
-                <div class="feed-content">
-                    <div class="feed-header">
+            <article class="feed-v2-post rail-panel">
+                <div class="feed-v2-post-head">
+                    <div class="feed-v2-user-block">
                         ${canOpenProfile
-                ? `<button onclick="window.openUserProfile('${safeUid}')" class="font-bold text-white hover:text-purple-300 transition-colors">${escapeHtml(user.display_name || user.username || 'Player')}</button>`
-                : `<b>${escapeHtml(user.display_name || user.username || 'Player')}</b>`}
-                        ${title}
+                ? `<button onclick="window.openUserProfile('${safeUid}')" class="feed-v2-user-avatar">
+                                <img class="w-full h-full object-cover" src="${avatar}" alt="avatar">
+                           </button>`
+                : `<div class="feed-v2-user-avatar"><img class="w-full h-full object-cover" src="${avatar}" alt="avatar"></div>`}
+                        <div class="min-w-0">
+                            ${canOpenProfile
+                ? `<button onclick="window.openUserProfile('${safeUid}')" class="feed-v2-user-name">${escapeHtml(user.display_name || user.username || 'Player')}</button>`
+                : `<div class="feed-v2-user-name">${escapeHtml(user.display_name || user.username || 'Player')}</div>`}
+                            <div class="feed-v2-user-time">${time}</div>
+                        </div>
                     </div>
-                    <div class="feed-meta">${time}</div>
+                    <button class="feed-v2-more-btn"><i class="fas fa-ellipsis-h"></i></button>
+                </div>
+                <div class="feed-v2-post-text">${title}</div>
+                <div class="feed-v2-post-body">
                     ${body}
-                    <div class="flex items-center gap-2 mt-3">
-                        <button onclick="window.likeFeedPost('${post.id}')" class="px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold text-gray-200">
-                            <i class="fas fa-heart mr-1"></i>${Number(post.likes || 0)}
-                        </button>
-                        <button onclick="window.toggleFeedComments('${post.id}')" class="px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold text-gray-200">
-                            <i class="fas fa-comment mr-1"></i>${totalComments}
-                        </button>
+                </div>
+                <div class="feed-v2-post-actions">
+                    <button onclick="window.likeFeedPost('${post.id}')" class="feed-v2-action-btn ${isLiked ? 'liked' : ''}">
+                        <i class="${isLiked ? 'fas' : 'far'} fa-heart"></i> ${Number(post.likes || 0)}
+                    </button>
+                    <button onclick="window.toggleFeedComments('${post.id}')" class="feed-v2-action-btn">
+                        <i class="far fa-comment"></i> ${totalComments}
+                    </button>
+                    <button onclick="window.openUserProfile('${safeUid}')" class="feed-v2-action-btn ${canOpenProfile ? '' : 'hidden'}">
+                        <i class="fas fa-user"></i> Profile
+                    </button>
+                </div>
+                <div class="${commentsExpanded ? 'mt-3' : 'hidden'}" id="post-comments-${post.id}">
+                    <div class="space-y-2 mb-2">
+                        ${commentsPreview.length ? commentsPreview.map(comment => `
+                            <div class="feed-v2-comment-row">
+                                <div class="text-[11px] text-gray-300"><b>${escapeHtml(comment.username || 'Player')}:</b> ${escapeHtml(comment.text || '')}</div>
+                            </div>
+                        `).join('') : '<div class="text-[11px] text-gray-500">No comments yet.</div>'}
                     </div>
-                    <div class="${commentsExpanded ? 'mt-3' : 'hidden'}" id="post-comments-${post.id}">
-                        <div class="space-y-2 mb-2">
-                            ${commentsPreview.length ? commentsPreview.map(comment => `
-                                <div class="bg-black/20 border border-white/10 rounded-lg px-2 py-1">
-                                    <div class="text-[11px] text-gray-300"><b>${escapeHtml(comment.username || 'Player')}:</b> ${escapeHtml(comment.text || '')}</div>
-                                </div>
-                            `).join('') : '<div class="text-[11px] text-gray-500">No comments yet.</div>'}
-                        </div>
-                        <div class="flex gap-2">
-                            <input id="comment-input-${post.id}" type="text" placeholder="Write a comment..." class="flex-1 bg-black/20 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none">
-                            <button onclick="window.submitFeedComment('${post.id}')" class="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-[11px] font-bold text-white">Send</button>
-                        </div>
+                    <div class="flex gap-2">
+                        <input id="comment-input-${post.id}" type="text" placeholder="Write a comment..." class="feed-v2-comment-input">
+                        <button onclick="window.submitFeedComment('${post.id}')" class="feed-v2-comment-send">Send</button>
                     </div>
                 </div>
-            </div>
+            </article>
         `;
     }).join('');
 }
@@ -815,9 +1413,13 @@ function getFeedBody(post) {
         const game = findGameById(post.data?.gameId);
         if (!game) return '';
         return `
-            <div class="mt-2 bg-black/20 border border-white/10 rounded-xl p-2 flex items-center gap-2">
-                <img src="${game.thumbnail || 'assets/icons/logo.jpg'}" class="w-10 h-10 rounded-lg object-cover" alt="${escapeHtml(game.title)}">
-                <span class="text-xs text-gray-200">${escapeHtml(game.title)}</span>
+            <div class="feed-v2-system-event">
+                <img src="${game.thumbnail || 'assets/icons/logo.jpg'}" class="feed-v2-mini-thumb" alt="${escapeHtml(game.title)}">
+                <div class="min-w-0">
+                    <div class="text-xs text-gray-300">Favorited a game</div>
+                    <div class="text-sm font-bold text-white truncate">${escapeHtml(game.title)}</div>
+                </div>
+                <button onclick="playGame('${escapeAttr(game.url || '')}','${escapeAttr(game.title || 'Game')}')" class="feed-v2-mini-play">Play</button>
             </div>
         `;
     }
@@ -825,10 +1427,10 @@ function getFeedBody(post) {
     if (post.type === 'status') {
         const safeText = escapeHtml(post.data?.text || '');
         const imageUrl = post.data?.imageUrl ? String(post.data.imageUrl) : '';
-        const textBlock = safeText ? `<div class="mt-2 text-sm text-gray-200 bg-black/20 border border-white/10 rounded-xl p-3">${safeText}</div>` : '';
+        const textBlock = safeText ? `<div class="feed-v2-status-text">${safeText}</div>` : '';
         const imageBlock = imageUrl ? `
-            <div class="mt-2 rounded-xl overflow-hidden border border-white/10 bg-black/20">
-                <img src="${escapeAttr(imageUrl)}" alt="post image" class="w-full max-h-72 object-cover">
+            <div class="feed-v2-post-media">
+                <img src="${escapeAttr(imageUrl)}" alt="post image" class="w-full h-auto object-cover">
             </div>
         ` : '';
         return `${textBlock}${imageBlock}`;
@@ -836,7 +1438,7 @@ function getFeedBody(post) {
 
     if (post.type === 'profile_update') {
         const fields = (post.data?.fields || []).join(', ');
-        return `<div class="mt-2 text-xs text-gray-400">Updated: ${escapeHtml(fields || 'profile fields')}</div>`;
+        return `<div class="feed-v2-status-text text-xs">Updated: ${escapeHtml(fields || 'profile fields')}</div>`;
     }
 
     return '';
@@ -998,31 +1600,78 @@ function renderMobileDirectPanel(list) {
 
     const friends = window.chatState.friends || [];
     const onlineIds = new Set((window.chatState.onlineUsers || []).map(u => u.uid));
-    const threadByTarget = new Map((window.chatState.dmThreads || []).map(thread => [thread.targetUid, thread]));
+    const friendMap = new Map(friends.map(friend => [friend.uid, friend]));
+    const threads = (window.chatState.dmThreads || [])
+        .filter(thread => thread?.targetUid && thread?.lastMessage?.text)
+        .map(thread => {
+            const friend = friendMap.get(thread.targetUid) || {};
+            return {
+                uid: thread.targetUid,
+                username: friend.username || thread.lastMessage?.user || 'Player',
+                avatar: friend.avatar || '',
+                isOnline: onlineIds.has(thread.targetUid),
+                unread: Number(thread.unreadCount || 0),
+                text: String(thread.lastMessage?.text || ''),
+                updatedAt: thread.updatedAt || thread.lastMessage?.at || null
+            };
+        })
+        .sort((a, b) => {
+            const aDate = coerceDate(a.updatedAt);
+            const bDate = coerceDate(b.updatedAt);
+            return (bDate?.getTime() || 0) - (aDate?.getTime() || 0);
+        });
 
-    list.innerHTML = `
-        <div class="space-y-2 bg-black/20 border border-white/10 rounded-xl p-2 max-h-[36vh] overflow-y-auto">
-            ${friends.length ? friends.map(friend => {
+    const circles = friends.slice(0, 20).map(friend => {
         const isOnline = onlineIds.has(friend.uid);
-        const thread = threadByTarget.get(friend.uid);
-        const unread = Number(thread?.unreadCount || 0);
         const encodedName = encodeURIComponent(friend.username || 'Player');
         const encodedAvatar = encodeURIComponent(friend.avatar || '');
-        const isActive = window.chatState.activeDmFriend?.uid === friend.uid;
         return `
-                    <div class="w-full rounded-xl p-2 flex items-center gap-2 ${isActive ? 'bg-purple-600/20 border border-purple-500/40' : 'bg-white/5 border border-white/10'}">
-                        <button onclick="window.openUserProfile('${friend.uid}')" class="w-8 h-8 rounded-full overflow-hidden border border-white/10">
-                            <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-8 h-8 rounded-full object-cover">
-                        </button>
-                        <button onclick="window.openUserProfile('${friend.uid}')" class="flex-1 text-left">
-                            <div class="text-xs font-bold ${isActive ? 'text-white' : 'text-gray-200'} truncate">${escapeHtml(friend.username || friend.uid)}</div>
-                            <div class="text-[10px] ${isOnline ? 'text-green-300' : 'text-gray-500'}">${isOnline ? 'Online' : 'Offline'}</div>
-                        </button>
-                        ${unread > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${unread}</span>` : ''}
-                        <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="px-2 py-1 rounded bg-purple-600 hover:bg-purple-500 text-[10px] font-bold text-white">Chat</button>
-                    </div>
-                        `;
-    }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet. Add friends to start DMs.</div>`}
+            <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="flex-shrink-0 w-16 text-center">
+                <div class="relative mx-auto w-12 h-12 rounded-full overflow-hidden border ${isOnline ? 'border-green-400/70' : 'border-white/15'}">
+                    <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-12 h-12 object-cover">
+                    <span class="absolute bottom-0 right-0 w-3 h-3 rounded-full border border-black ${isOnline ? 'bg-green-400' : 'bg-gray-500'}"></span>
+                </div>
+                <div class="text-[10px] text-gray-300 truncate mt-1">${escapeHtml(friend.username || 'Player')}</div>
+            </button>
+        `;
+    }).join('');
+
+    const rows = threads.map(thread => {
+        const encodedName = encodeURIComponent(thread.username || 'Player');
+        const encodedAvatar = encodeURIComponent(thread.avatar || '');
+        const isActive = window.chatState.activeDmFriend?.uid === thread.uid;
+        return `
+            <div class="w-full rounded-xl p-2 flex items-center gap-2 ${isActive ? 'bg-purple-600/20 border border-purple-500/40' : 'bg-white/5 border border-white/10'}">
+                <button onclick="window.openUserProfile('${thread.uid}')" class="w-10 h-10 rounded-full overflow-hidden border border-white/10">
+                    <img src="${thread.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-10 h-10 rounded-full object-cover">
+                </button>
+                <button onclick="window.openUserProfile('${thread.uid}')" class="flex-1 min-w-0 text-left">
+                    <div class="text-xs font-bold ${isActive ? 'text-white' : 'text-gray-200'} truncate">${escapeHtml(thread.username || 'Player')}</div>
+                    <div class="text-[10px] ${thread.isOnline ? 'text-green-300' : 'text-gray-500'} truncate">${escapeHtml(thread.text)}</div>
+                </button>
+                <div class="text-right">
+                    <div class="text-[10px] text-gray-500 mb-1">${formatTime(thread.updatedAt)}</div>
+                    ${thread.unread > 0 ? `<span class="inline-flex items-center justify-center min-w-[1.2rem] px-1 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${thread.unread}</span>` : ''}
+                </div>
+                <button onclick="window.startDm('${thread.uid}','${encodedName}','${encodedAvatar}')" class="px-2 py-1 rounded bg-purple-600 hover:bg-purple-500 text-[10px] font-bold text-white">Chat</button>
+            </div>
+        `;
+    }).join('');
+
+    list.innerHTML = `
+        <div class="space-y-3 bg-black/20 border border-white/10 rounded-xl p-2 max-h-[54vh] overflow-y-auto">
+            <div>
+                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1 py-1">Friends</div>
+                <div class="flex gap-2 overflow-x-auto pb-1">
+                    ${circles || `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
+                </div>
+            </div>
+            <div>
+                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1 py-1">Messages</div>
+                <div class="space-y-2">
+                    ${rows || `<div class="text-xs text-gray-500 px-1">No chats yet. Tap a friend above to start chatting.</div>`}
+                </div>
+            </div>
         </div>
     `;
 }
@@ -1049,59 +1698,114 @@ function renderMobileGlobalStrip(container) {
 function updateMobileChatPanels() {
     const globalStrip = document.getElementById('mobile-global-strip');
     const dmPanel = document.getElementById('mobile-dm-list-panel');
-    if (!globalStrip || !dmPanel) return;
+    const mobileTabs = document.querySelector('.mobile-chat-tabs');
+    const messagesArea = document.getElementById('chat-messages-area');
+    const dmHeader = document.getElementById('mobile-dm-conversation-header');
+    if (!globalStrip || !dmPanel || !mobileTabs || !messagesArea || !dmHeader) return;
 
-    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    const isMobile = isMobileViewport();
     if (!isMobile) {
         globalStrip.classList.add('hidden');
         dmPanel.classList.add('hidden');
+        dmHeader.classList.add('hidden');
+        messagesArea.classList.remove('hidden');
+        mobileTabs.classList.remove('hidden');
+        window.chatState.mobileDmConversationOpen = false;
+        updateChatComposerState();
+        syncMobileShellVisibility();
         return;
     }
 
     if (window.activeChatTab === 'global') {
+        window.chatState.mobileDmConversationOpen = false;
         globalStrip.classList.remove('hidden');
         dmPanel.classList.add('hidden');
+        dmHeader.classList.add('hidden');
+        messagesArea.classList.remove('hidden');
+        mobileTabs.classList.remove('hidden');
         renderMobileGlobalStrip(globalStrip);
     } else {
-        globalStrip.classList.add('hidden');
-        dmPanel.classList.remove('hidden');
-        renderMobileDirectPanel(dmPanel);
+        const hasActiveConversation = Boolean(window.chatState.activeDmFriend && window.chatState.mobileDmConversationOpen);
+        if (hasActiveConversation) {
+            globalStrip.classList.add('hidden');
+            dmPanel.classList.add('hidden');
+            dmHeader.classList.remove('hidden');
+            messagesArea.classList.remove('hidden');
+            mobileTabs.classList.add('hidden');
+            updateMobileDmConversationHeader();
+        } else {
+            globalStrip.classList.add('hidden');
+            dmPanel.classList.remove('hidden');
+            dmHeader.classList.add('hidden');
+            messagesArea.classList.add('hidden');
+            mobileTabs.classList.remove('hidden');
+            renderMobileDirectPanel(dmPanel);
+        }
     }
+    updateChatComposerState();
+    syncMobileShellVisibility();
+}
+
+function updateMobileDmConversationHeader() {
+    const profileBtn = document.getElementById('mobileDmHeaderProfileBtn');
+    const friend = window.chatState.activeDmFriend;
+    if (!profileBtn || !friend) return;
+    const targetUid = friend.uid || '';
+    const safeName = escapeHtml(friend.username || 'Player');
+    const avatar = friend.avatar || 'assets/icons/logo.jpg';
+
+    profileBtn.innerHTML = `
+        <div class="w-9 h-9 rounded-full overflow-hidden border border-white/10">
+            <img src="${avatar}" alt="avatar" class="w-9 h-9 object-cover">
+        </div>
+        <div class="min-w-0">
+            <div class="text-sm font-bold text-white truncate">${safeName}</div>
+            <div class="text-[11px] text-gray-400 truncate">Direct message</div>
+        </div>
+    `;
+    profileBtn.onclick = () => window.openUserProfile(targetUid);
 }
 
 /* -------------------------------------------------------------------------- */
 /*                           CHAT LISTENERS & ACTIONS                         */
 /* -------------------------------------------------------------------------- */
 
-window.switchChatTab = function (tab, skipListRefresh = false) {
+window.switchChatTab = function (tab, skipListRefresh = false, openConversation = null) {
+    const prevTab = window.activeChatTab;
     window.activeChatTab = tab === 'dms' ? 'dms' : 'global';
-    if (window.activeChatTab === 'dms' && !window.chatState.activeDmFriend && (window.chatState.friends || []).length) {
-        const firstFriend = window.chatState.friends[0];
-        window.chatState.activeDmFriend = {
-            uid: firstFriend.uid,
-            username: firstFriend.username || 'Player',
-            avatar: firstFriend.avatar || ''
-        };
-        window.Services?.chat?.listenToDirectChat?.(firstFriend.uid);
-    } else if (window.activeChatTab === 'dms' && window.chatState.activeDmFriend?.uid) {
-        window.Services?.chat?.listenToDirectChat?.(window.chatState.activeDmFriend.uid);
-    }
-    updateChatTabStyles();
-    updateMobileChatPanels();
+    const isMobile = isMobileViewport();
 
-    const input = document.getElementById('chatMsgInput');
-    if (input) {
-        if (window.activeChatTab === 'global') {
-            input.placeholder = "Message global chat...";
-            input.disabled = false;
-        } else if (!window.chatState.activeDmFriend) {
-            input.placeholder = "Select a friend to start DM...";
-            input.disabled = true;
-        } else {
-            input.placeholder = `Message ${window.chatState.activeDmFriend.username}...`;
-            input.disabled = false;
+    if (window.activeChatTab === 'global') {
+        window.chatState.mobileDmConversationOpen = false;
+    } else {
+        if (!window.chatState.activeDmFriend && !isMobile && (window.chatState.friends || []).length) {
+            const firstFriend = window.chatState.friends[0];
+            window.chatState.activeDmFriend = {
+                uid: firstFriend.uid,
+                username: firstFriend.username || 'Player',
+                avatar: firstFriend.avatar || ''
+            };
+        }
+        if (isMobile) {
+            if (openConversation === true) {
+                window.chatState.mobileDmConversationOpen = Boolean(window.chatState.activeDmFriend);
+            } else if (openConversation === false) {
+                window.chatState.mobileDmConversationOpen = false;
+            } else if (prevTab !== 'dms') {
+                window.chatState.mobileDmConversationOpen = false;
+            } else if (!window.chatState.activeDmFriend) {
+                window.chatState.mobileDmConversationOpen = false;
+            }
+        }
+
+        if (window.chatState.activeDmFriend?.uid) {
+            window.Services?.chat?.listenToDirectChat?.(window.chatState.activeDmFriend.uid);
         }
     }
+
+    updateChatTabStyles();
+    updateMobileChatPanels();
+    updateChatComposerState();
 
     if (!skipListRefresh) renderChatListContent();
     if (window.activeChatTab === 'global') {
@@ -1149,11 +1853,11 @@ function setTabClasses(el, active) {
 
 function setMobileTabClasses(el, active) {
     if (!el) return;
-    el.classList.remove('bg-purple-600', 'bg-white/5', 'text-white', 'text-gray-400');
+    el.classList.remove('bg-purple-600', 'bg-white/5', 'text-white', 'text-gray-400', 'border-b-2', 'border-purple-400', 'border-transparent');
     if (active) {
-        el.classList.add('bg-purple-600', 'text-white');
+        el.classList.add('bg-purple-600', 'text-white', 'border-b-2', 'border-purple-400');
     } else {
-        el.classList.add('bg-white/5', 'text-gray-400');
+        el.classList.add('bg-white/5', 'text-gray-400', 'border-b-2', 'border-transparent');
     }
 }
 
@@ -1168,7 +1872,7 @@ function renderGlobalMessages() {
     }
 
     container.innerHTML = '';
-    msgs.forEach(msg => renderMessage(msg, container));
+    msgs.forEach(msg => renderMessage(msg, container, 'global'));
     container.scrollTop = container.scrollHeight;
 }
 
@@ -1193,7 +1897,7 @@ function renderDirectMessages() {
     }
 
     container.innerHTML = '';
-    msgs.forEach(msg => renderMessage(msg, container));
+    msgs.forEach(msg => renderMessage(msg, container, 'dm'));
     container.scrollTop = container.scrollHeight;
 }
 
@@ -1322,18 +2026,37 @@ window.startDm = function (uid, encodedName, encodedAvatar) {
     const avatar = decodeURIComponent(encodedAvatar || '');
     window.chatState.activeDmFriend = { uid, username, avatar };
     window.chatState.directMessages = [];
-    window.switchChatTab('dms');
+    window.switchChatTab('dms', false, isMobileViewport());
     window.Services?.chat?.listenToDirectChat?.(uid);
 };
 
-function renderMessage(msg, container) {
+window.closeMobileDmConversation = function () {
+    window.chatState.mobileDmConversationOpen = false;
+    updateMobileChatPanels();
+};
+
+function renderMessage(msg, container, scope = 'global') {
     const isMe = window.Services?.state?.currentUser && msg.uid === window.Services.state.currentUser.uid;
     const div = document.createElement('div');
     const stamp = formatTime(msg.timestamp);
+    const safeUid = escapeAttr(msg.uid || '');
+    const canOpenProfile = Boolean(msg.uid);
+    const avatar = msg.avatar || 'assets/icons/logo.jpg';
+    const username = escapeHtml(msg.user || 'Player');
 
     div.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'} mb-4`;
     div.innerHTML = `
-        ${!isMe ? `<span class="text-[10px] text-gray-500 font-bold mb-1 ml-1">${escapeHtml(msg.user || 'Player')}</span>` : ''}
+        ${!isMe && scope === 'global'
+            ? `<div class="flex items-center gap-2 mb-1 ml-1">
+                ${canOpenProfile
+                    ? `<button onclick="window.openUserProfile('${safeUid}')" class="w-7 h-7 rounded-full overflow-hidden border border-white/10">
+                        <img src="${avatar}" alt="avatar" class="w-7 h-7 object-cover">
+                    </button>
+                    <button onclick="window.openUserProfile('${safeUid}')" class="text-[11px] text-gray-300 font-bold hover:text-white transition-colors">${username}</button>`
+                    : `<div class="w-7 h-7 rounded-full overflow-hidden border border-white/10"><img src="${avatar}" alt="avatar" class="w-7 h-7 object-cover"></div>
+                    <span class="text-[11px] text-gray-300 font-bold">${username}</span>`}
+            </div>`
+            : ''}
         <div class="message-bubble ${isMe ? 'me' : 'them'}">
             ${escapeHtml(msg.text || '')}
             <div class="text-[9px] opacity-60 mt-1 text-right">${stamp}</div>
@@ -1717,26 +2440,28 @@ window.closePrivateChat = function () {
     window.switchChatTab('dms');
 };
 
-function renderProfileGameCard(game, isFavorite) {
+function renderProfileGameCard(game, isFavorite, allowFavorite = true) {
     const safeTitle = escapeHtml(game.title || 'Game');
     const safeThumb = game.thumbnail || 'assets/icons/logo.jpg';
     const safeUrl = escapeAttr(game.url || '');
     const safeGameId = game.id ? escapeAttr(game.id) : '';
-    const favoriteBtn = game.id ? `
-        <button onclick="window.toggleFavoriteGame('${safeGameId}')" class="px-2 py-1 rounded-lg ${isFavorite ? 'bg-pink-500 text-white shadow-lg shadow-pink-900/40 ring-1 ring-pink-300/50' : 'bg-white/10 text-gray-300 hover:bg-white/20'} text-[10px] font-bold transition-all">
+    const favoriteBtn = allowFavorite && game.id ? `
+        <button onclick="window.toggleFavoriteGame('${safeGameId}')" class="profile-v2-card-btn ${isFavorite ? 'active' : ''}">
             <i class="fas fa-heart mr-1"></i>${isFavorite ? 'Saved' : 'Save'}
         </button>
-    ` : `<span class="text-[10px] text-gray-600">No ID</span>`;
+    ` : '';
 
     return `
-        <div class="bg-black/20 border border-white/10 rounded-xl p-2">
-            <img src="${safeThumb}" class="w-full h-20 object-cover rounded-lg mb-2" alt="${safeTitle}">
-            <div class="text-xs font-bold text-white truncate mb-2">${safeTitle}</div>
-            <div class="flex items-center justify-between gap-1">
-                <button onclick="playGame('${safeUrl}','${escapeAttr(game.title || 'Game')}')" class="px-2 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold">
+        <div class="profile-v2-game-card">
+            <img src="${safeThumb}" class="profile-v2-game-thumb" alt="${safeTitle}">
+            <div class="p-3">
+                <div class="text-sm font-bold text-white truncate">${safeTitle}</div>
+                <div class="flex items-center justify-between gap-2 mt-2">
+                    <button onclick="playGame('${safeUrl}','${escapeAttr(game.title || 'Game')}')" class="profile-v2-card-btn play">
                     Play
                 </button>
                 ${favoriteBtn}
+                </div>
             </div>
         </div>
     `;
