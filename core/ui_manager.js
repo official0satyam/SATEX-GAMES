@@ -22,6 +22,7 @@ window.chatState = {
     viewedProfileRelation: null,
     mobileListOpen: false,
     mobileDmConversationOpen: false,
+    mobileGlobalConversationOpen: false,
     feedFollowingOnly: false,
     followedUsers: [],
     followedUsersLoadedFor: null,
@@ -75,6 +76,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             cleanupProfilePreviewUrls();
             window.chatState.activeDmFriend = null;
             window.chatState.directMessages = [];
+            window.chatState.mobileDmConversationOpen = false;
+            window.chatState.mobileGlobalConversationOpen = false;
             window.chatState.sentRequests = {};
             window.chatState.feedComposerFiles = [];
             window.chatState.profileUpload = { avatarUrl: '', coverUrl: '' };
@@ -211,6 +214,7 @@ window.switchView = function (viewName) {
         const backdrop = document.getElementById('sidebarBackdrop');
         if (sidebar) sidebar.style.transform = 'translateX(-100%)';
         if (backdrop) backdrop.classList.add('hidden');
+        if (typeof window.setSidebarScrollLock === 'function') window.setSidebarScrollLock(false);
     }
 };
 
@@ -224,6 +228,7 @@ function _renderView(viewName, isPush) {
         window.Services?.chat?.stopGlobalChat?.();
         window.Services?.friend?.stopOnlineUsers?.();
         window.chatState.mobileDmConversationOpen = false;
+        window.chatState.mobileGlobalConversationOpen = false;
     }
     if (previousView === 'social' && viewName !== 'social') {
         cleanupFeedCommentListeners();
@@ -296,13 +301,18 @@ function syncMobileShellVisibility() {
         && window.activeChatTab === 'dms'
         && Boolean(window.chatState.activeDmFriend)
         && Boolean(window.chatState.mobileDmConversationOpen);
+    const inGlobalConversation = inChatView
+        && window.activeChatTab === 'global'
+        && Boolean(window.chatState.mobileGlobalConversationOpen);
+    const inChatConversation = inDmConversation || inGlobalConversation;
     const shouldHideHeader = isMobile && (inSocialView || inChatView || inProfileView);
+    document.body.classList.toggle('mobile-view-headerless', shouldHideHeader);
 
     if (shouldHideHeader) {
         header.classList.add('hidden');
-        if (inDmConversation) bottomNav.classList.add('hidden');
+        if (inChatConversation) bottomNav.classList.add('hidden');
         else bottomNav.classList.remove('hidden');
-        if (inDmConversation) document.body.classList.add('mobile-dm-focused');
+        if (inChatConversation) document.body.classList.add('mobile-dm-focused');
         else document.body.classList.remove('mobile-dm-focused');
     } else {
         header.classList.remove('hidden');
@@ -314,7 +324,7 @@ function syncMobileShellVisibility() {
 function renderMobileViewHeader(title = 'Section') {
     return `
         <div class="profile-v2-mobile-head md:hidden">
-            <button onclick="toggleSidebar()" class="profile-v2-mobile-btn" aria-label="Menu">
+            <button onclick="toggleSidebar()" data-sidebar-toggle="true" class="profile-v2-mobile-btn" aria-label="Menu">
                 <i class="fas fa-bars"></i>
             </button>
             <h2 class="profile-v2-mobile-title">${escapeHtml(title)}</h2>
@@ -333,6 +343,9 @@ function updateChatComposerState() {
     const isMobile = isMobileViewport();
     let showComposer = true;
     if (window.activeChatTab === 'dms' && isMobile && !window.chatState.mobileDmConversationOpen) {
+        showComposer = false;
+    }
+    if (window.activeChatTab === 'global' && isMobile && !window.chatState.mobileGlobalConversationOpen) {
         showComposer = false;
     }
     composer.classList.toggle('hidden', !showComposer);
@@ -991,37 +1004,45 @@ function renderChatInterface() {
     if (!container) return;
 
     container.innerHTML = `
-        <div class="chat-layout">
+        <div class="chat-layout chat-v2-shell">
             <div class="chat-list-panel">
-                <div class="p-4 border-b border-white/5">
-                    <div class="flex bg-black/20 p-1 rounded-xl">
-                        <button onclick="switchChatTab('global')" id="tab-global" class="flex-1 py-2 rounded-lg text-xs font-bold uppercase">Global</button>
-                        <button onclick="switchChatTab('dms')" id="tab-dms" class="flex-1 py-2 rounded-lg text-xs font-bold uppercase">DMs</button>
+                <div class="chat-v2-list-head p-4 border-b border-white/5">
+                    <div class="chat-v2-list-title-row">
+                        <h2 class="chat-v2-list-title">Messaging</h2>
                     </div>
-                </div>
-                <div class="p-4 border-b border-white/5">
-                    <h4 class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Trending Now</h4>
-                    <div id="trending-games-mini" class="flex gap-2 overflow-x-auto pb-2"></div>
+                    <div class="chat-v2-tab-wrap">
+                        <button onclick="switchChatTab('global')" id="tab-global" class="chat-v2-tab-btn">Global</button>
+                        <button onclick="switchChatTab('dms')" id="tab-dms" class="chat-v2-tab-btn">DMs</button>
+                    </div>
                 </div>
                 <div id="chat-list-content" class="flex-1 overflow-y-auto p-2"></div>
             </div>
 
             <div class="chat-view-panel">
-                <div class="md:hidden mobile-chat-tabs border-b border-white/5 p-2">
-                    <div class="flex-1 flex bg-black/20 p-1 rounded-xl">
-                        <button onclick="switchChatTab('global')" id="tab-mobile-global" class="flex-1 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">Global</button>
-                        <button onclick="switchChatTab('dms')" id="tab-mobile-dms" class="flex-1 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide">DMs</button>
-                    </div>
-                    <button onclick="openSearchPage('')" class="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300">
-                        <i class="fas fa-search"></i>
-                    </button>
+                <div class="chat-v2-desktop-head hidden md:flex border-b border-white/10" id="chatDesktopHeader">
+                        <button id="chatDesktopProfileBtn" class="chat-v2-head-user">
+                            <div class="chat-v2-head-avatar">
+                                <img id="chatDesktopAvatar" src="assets/icons/logo.jpg" alt="avatar" class="w-10 h-10 rounded-full object-cover">
+                            </div>
+                            <div class="min-w-0 text-left">
+                                <div id="chatDesktopTitle" class="chat-v2-head-title">Global Chat</div>
+                                <div id="chatDesktopSub" class="chat-v2-head-sub">Community channel</div>
+                            </div>
+                        </button>
                 </div>
-                <div id="mobile-dm-conversation-header" class="hidden md:hidden border-b border-white/10 bg-black/80 backdrop-blur-md px-3 py-2">
+
+                <div class="md:hidden mobile-chat-tabs border-b border-white/5 p-2">
+                    <div class="chat-v2-tab-wrap">
+                        <button onclick="switchChatTab('global')" id="tab-mobile-global" class="chat-v2-mobile-tab-btn">Global</button>
+                        <button onclick="switchChatTab('dms')" id="tab-mobile-dms" class="chat-v2-mobile-tab-btn">DMs</button>
+                    </div>
+                </div>
+                <div id="mobile-chat-conversation-header" class="md:hidden border-b border-white/10 bg-black/80 backdrop-blur-md px-3 py-2">
                     <div class="flex items-center gap-2">
-                        <button onclick="window.closeMobileDmConversation()" class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-gray-200">
+                        <button id="mobileChatConversationBackBtn" class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-gray-200">
                             <i class="fas fa-arrow-left"></i>
                         </button>
-                        <button id="mobileDmHeaderProfileBtn" class="flex-1 min-w-0 flex items-center gap-2 text-left"></button>
+                        <button id="mobileChatHeaderProfileBtn" class="flex-1 min-w-0 flex items-center gap-2 text-left"></button>
                     </div>
                 </div>
                 <div id="mobile-global-strip" class="md:hidden px-2 pb-2 border-b border-white/5"></div>
@@ -1038,6 +1059,16 @@ function renderChatInterface() {
                     </div>
                 </div>
             </div>
+
+            <aside class="chat-v2-info-sidebar hidden xl:flex">
+                <img id="chatInfoAvatar" src="assets/icons/logo.jpg" alt="avatar" class="chat-v2-info-avatar">
+                <h3 id="chatInfoTitle" class="chat-v2-info-title">Global Chat</h3>
+                <p id="chatInfoSub" class="chat-v2-info-sub">Public Hub</p>
+                <div class="chat-v2-info-actions">
+                    <button onclick="showToast('Block controls coming soon','info')" class="chat-v2-info-btn">Block</button>
+                    <button id="chatInfoProfileBtn" class="chat-v2-info-btn">Profile</button>
+                </div>
+            </aside>
         </div>
     `;
 
@@ -1048,7 +1079,6 @@ function renderChatInterface() {
         });
     }
 
-    populateTrending();
     window.Services?.friend?.listenToFriends?.();
     window.Services?.friend?.listenToOnlineUsers?.();
     window.Services?.chat?.listenToDmThreads?.();
@@ -1058,7 +1088,13 @@ function renderChatInterface() {
     }
     renderChatListContent();
     updateMobileListVisibility();
-    window.switchChatTab(window.activeChatTab || 'global', true, window.chatState.mobileDmConversationOpen);
+    window.switchChatTab(
+        window.activeChatTab || 'global',
+        true,
+        window.chatState.mobileDmConversationOpen,
+        window.chatState.mobileGlobalConversationOpen
+    );
+    updateChatDesktopHeader();
 }
 
 async function ensureFollowingUsersLoaded(force = false) {
@@ -1242,7 +1278,7 @@ function renderSocialFeed(isUpdate = false) {
 
                 <main class="feed-v2-main">
                     <div class="feed-v2-mobile-head">
-                        <button onclick="toggleSidebar()" class="feed-v2-mobile-menu" aria-label="Menu">
+                        <button onclick="toggleSidebar()" data-sidebar-toggle="true" class="feed-v2-mobile-menu" aria-label="Menu">
                             <i class="fas fa-bars"></i>
                         </button>
                         <h2 class="feed-v2-main-title">Activity Feed</h2>
@@ -1468,33 +1504,50 @@ function renderChatListContent() {
         const globalHtml = renderGlobalListPanel();
         list.innerHTML = globalHtml;
         updateMobileChatPanels();
+        updateChatDesktopHeader();
         return;
     }
 
     renderDirectListPanel(list);
     updateMobileChatPanels();
+    updateChatDesktopHeader();
 }
 
 function renderGlobalListPanel() {
     const onlinePreview = (window.chatState.onlineUsers || []).slice(0, 12);
     return `
-        <div class="p-2">
-            <div class="bg-white/5 border border-white/10 rounded-xl p-3 mb-3">
-                <p class="text-xs text-gray-300 font-bold mb-1">Global Lobby</p>
-                <p class="text-[11px] text-gray-500">Talk with all players in real time.</p>
-            </div>
-            <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Online Players</div>
-            <div class="space-y-2">
+        <div class="chat-v2-global-wrap">
+            <div class="chat-v2-section-label">Online Members</div>
+            <div class="chat-v2-online-rail">
                 ${onlinePreview.length ? onlinePreview.map(user => `
-                    <div class="flex items-center gap-2 bg-white/5 rounded-lg p-2">
-                        <span class="w-2 h-2 rounded-full bg-green-400"></span>
-                        <button onclick="window.openUserProfile('${user.uid}')" class="w-6 h-6 rounded-full overflow-hidden border border-white/10">
-                            <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-6 h-6 rounded-full object-cover">
-                        </button>
-                        <button onclick="window.openUserProfile('${user.uid}')" class="text-xs text-gray-200 truncate flex-1 text-left hover:text-white">${escapeHtml(user.username || 'Player')}</button>
-                        <button onclick="window.openUserProfile('${user.uid}')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px] font-bold text-gray-200">View</button>
-                    </div>
+                    <button onclick="window.openUserProfile('${escapeAttr(user.uid)}')" class="chat-v2-online-item">
+                        <div class="chat-v2-avatar-ring">
+                            <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar">
+                            <span class="chat-v2-online-dot ${String(user.status?.state || '').toLowerCase() === 'online' ? 'online' : ''}"></span>
+                        </div>
+                        <div class="chat-v2-online-name">${escapeHtml(user.username || 'Player')}</div>
+                    </button>
                 `).join('') : `<div class="text-xs text-gray-500 px-1">No online players found.</div>`}
+            </div>
+
+            <div class="chat-v2-section-label mt-2">Channels</div>
+            <div class="space-y-2">
+                <button onclick="window.openGlobalChannel()" class="chat-v2-channel-item active">
+                    <div class="chat-v2-channel-icon globe"><i class="fas fa-earth-americas"></i></div>
+                    <div class="min-w-0 flex-1 text-left">
+                        <div class="chat-v2-channel-name">Global Chat</div>
+                        <div class="chat-v2-channel-meta">${Number((window.chatState.onlineUsers || []).length || 0)} players online</div>
+                    </div>
+                    <div class="chat-v2-channel-badge">Live</div>
+                </button>
+                <button onclick="window.openSupportChannel()" class="chat-v2-channel-item">
+                    <div class="chat-v2-channel-icon support"><i class="fas fa-headset"></i></div>
+                    <div class="min-w-0 flex-1 text-left">
+                        <div class="chat-v2-channel-name">Support</div>
+                        <div class="chat-v2-channel-meta">Help center channel</div>
+                    </div>
+                    <div class="chat-v2-channel-badge muted">Soon</div>
+                </button>
             </div>
         </div>
     `;
@@ -1503,7 +1556,7 @@ function renderGlobalListPanel() {
 function renderDirectListPanel(list) {
     if (!window.Services?.state?.currentUser) {
         list.innerHTML = `
-            <div class="p-3">
+            <div class="chat-v2-dm-wrap">
                 <div class="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
                     <p class="text-sm text-gray-200 font-bold mb-2">Login Required</p>
                     <p class="text-xs text-gray-500 mb-3">Sign in to view friends and DMs.</p>
@@ -1514,78 +1567,71 @@ function renderDirectListPanel(list) {
         return;
     }
 
-    const requests = window.chatState.requests || [];
     const friends = window.chatState.friends || [];
     const onlineIds = new Set((window.chatState.onlineUsers || []).map(u => u.uid));
     const threadByTarget = new Map((window.chatState.dmThreads || []).map(thread => [thread.targetUid, thread]));
-
-    list.innerHTML = `
-        <div class="p-2 space-y-3">
-            <div class="bg-white/5 border border-white/10 rounded-xl p-3">
-                <div class="flex gap-2">
-                    <input id="friendSearchInput" type="text" placeholder="Search username..." class="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none">
-                    <button onclick="window.searchFriendUsers()" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-white font-bold">Find</button>
-                </div>
-                <div id="friend-search-results" class="mt-2 space-y-2"></div>
-            </div>
-
-            <div>
-                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Requests</div>
-                <div class="space-y-2">
-                    ${requests.length ? requests.map(req => `
-                        <div class="bg-white/5 border border-white/10 rounded-lg p-2 flex items-center justify-between gap-2">
-                            <div class="flex items-center gap-2 min-w-0">
-                                <button onclick="window.openUserProfile('${req.from}')" class="w-7 h-7 rounded-full overflow-hidden border border-white/10">
-                                    <img src="${req.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover">
-                                </button>
-                                <button onclick="window.openUserProfile('${req.from}')" class="text-xs text-gray-200 truncate text-left hover:text-white">${escapeHtml(req.username || req.from)}</button>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <button onclick="window.acceptFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-green-600 hover:bg-green-500 text-[10px] font-bold">Accept</button>
-                                <button onclick="window.declineFriendRequest('${req.from}')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px] font-bold text-gray-300">Decline</button>
-                            </div>
-                        </div>
-                    `).join('') : `<div class="text-xs text-gray-500 px-1">No pending requests.</div>`}
-                </div>
-            </div>
-
-            <div>
-                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Friends</div>
-                <div class="space-y-2">
-                    ${friends.length ? friends.map(friend => {
+    const orderedFriends = [...friends].sort((a, b) => {
+        const aThread = threadByTarget.get(a.uid);
+        const bThread = threadByTarget.get(b.uid);
+        const aTime = coerceDate(aThread?.updatedAt || aThread?.lastMessage?.at)?.getTime() || 0;
+        const bTime = coerceDate(bThread?.updatedAt || bThread?.lastMessage?.at)?.getTime() || 0;
+        if (aTime !== bTime) return bTime - aTime;
+        return String(a.username || '').localeCompare(String(b.username || ''));
+    });
+    const friendCircles = orderedFriends.slice(0, 20).map(friend => {
         const isOnline = onlineIds.has(friend.uid);
-        const thread = threadByTarget.get(friend.uid);
-        const unread = Number(thread?.unreadCount || 0);
+        const safeUid = escapeAttr(friend.uid || '');
         const encodedName = encodeURIComponent(friend.username || 'Player');
         const encodedAvatar = encodeURIComponent(friend.avatar || '');
         return `
-                            <div class="w-full bg-white/5 border border-white/10 hover:border-purple-500/40 rounded-lg p-2 flex items-center gap-2 transition-all">
-                                <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : 'bg-gray-600'}"></span>
-                                <button onclick="window.openUserProfile('${friend.uid}')" class="w-7 h-7 rounded-full overflow-hidden border border-white/10">
-                                    <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover">
-                                </button>
-                                <button onclick="window.openUserProfile('${friend.uid}')" class="text-xs text-gray-200 truncate flex-1 text-left hover:text-white">${escapeHtml(friend.username || friend.uid)}</button>
-                                ${unread > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${unread}</span>` : ''}
-                                <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="px-2 py-1 rounded bg-purple-600 hover:bg-purple-500 text-[10px] font-bold text-white">Chat</button>
-                            </div>
-                        `;
-    }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
+            <button onclick="window.startDm('${safeUid}','${encodedName}','${encodedAvatar}')" class="chat-v2-friend-pill ${window.chatState.activeDmFriend?.uid === friend.uid ? 'active' : ''}">
+                <div class="chat-v2-friend-pill-avatar ${isOnline ? 'online' : ''}">
+                    <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar">
+                    <span class="chat-v2-friend-pill-dot ${isOnline ? 'online' : ''}"></span>
+                </div>
+                <div class="chat-v2-friend-pill-name">${escapeHtml(friend.username || 'Player')}</div>
+            </button>
+        `;
+    }).join('');
+
+    list.innerHTML = `
+        <div class="chat-v2-dm-wrap">
+            <div>
+                <div class="chat-v2-section-label">Friends</div>
+                <div class="chat-v2-friend-strip">
+                    ${friendCircles || `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
                 </div>
             </div>
-
             <div>
-                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 px-1">Online Players</div>
-                <div class="space-y-2">
-                    ${(window.chatState.onlineUsers || []).slice(0, 10).map(user => `
-                        <div class="flex items-center gap-2 bg-white/5 rounded-lg p-2">
-                            <span class="w-2 h-2 rounded-full bg-green-400"></span>
-                            <button onclick="window.openUserProfile('${user.uid}')" class="w-7 h-7 rounded-full overflow-hidden border border-white/10">
-                                <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-7 h-7 rounded-full object-cover">
-                            </button>
-                            <button onclick="window.openUserProfile('${user.uid}')" class="text-xs text-gray-200 truncate flex-1 text-left hover:text-white">${escapeHtml(user.username || 'Player')}</button>
-                            <button onclick="window.openUserProfile('${user.uid}')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px] font-bold text-gray-200">View</button>
-                        </div>
-                    `).join('') || `<div class="text-xs text-gray-500 px-1">No online users right now.</div>`}
+                <div class="chat-v2-section-label">Messages</div>
+                <div class="chat-v2-dm-list">
+                    ${orderedFriends.length ? orderedFriends.map(friend => {
+            const isOnline = onlineIds.has(friend.uid);
+            const thread = threadByTarget.get(friend.uid);
+            const unread = Number(thread?.unreadCount || 0);
+            const encodedName = encodeURIComponent(friend.username || 'Player');
+            const encodedAvatar = encodeURIComponent(friend.avatar || '');
+            const preview = thread?.lastMessage?.text || (isOnline ? 'Active now' : 'Tap to start chat');
+            const time = thread?.updatedAt || thread?.lastMessage?.at || null;
+            const safeUid = escapeAttr(friend.uid || '');
+            const isActive = window.chatState.activeDmFriend?.uid === friend.uid;
+            return `
+                        <button onclick="window.startDm('${safeUid}','${encodedName}','${encodedAvatar}')" class="chat-v2-dm-row ${isActive ? 'active' : ''}">
+                            <div class="chat-v2-dm-avatar-wrap">
+                                <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-10 h-10 rounded-full object-cover">
+                                <span class="chat-v2-dm-online-dot ${isOnline ? 'online' : ''}"></span>
+                            </div>
+                            <div class="chat-v2-dm-main">
+                                <div class="chat-v2-dm-top">
+                                    <span class="chat-v2-dm-name">${escapeHtml(friend.username || friend.uid)}</span>
+                                    <span class="chat-v2-dm-time">${time ? formatTime(time) : ''}</span>
+                                </div>
+                                <div class="chat-v2-dm-preview ${unread > 0 ? 'unread' : ''}">${escapeHtml(preview)}</div>
+                            </div>
+                            ${unread > 0 ? `<span class="chat-v2-unread-badge">${unread}</span>` : ''}
+                        </button>
+                    `;
+        }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
                 </div>
             </div>
         </div>
@@ -1600,33 +1646,23 @@ function renderMobileDirectPanel(list) {
 
     const friends = window.chatState.friends || [];
     const onlineIds = new Set((window.chatState.onlineUsers || []).map(u => u.uid));
-    const friendMap = new Map(friends.map(friend => [friend.uid, friend]));
-    const threads = (window.chatState.dmThreads || [])
-        .filter(thread => thread?.targetUid && thread?.lastMessage?.text)
-        .map(thread => {
-            const friend = friendMap.get(thread.targetUid) || {};
-            return {
-                uid: thread.targetUid,
-                username: friend.username || thread.lastMessage?.user || 'Player',
-                avatar: friend.avatar || '',
-                isOnline: onlineIds.has(thread.targetUid),
-                unread: Number(thread.unreadCount || 0),
-                text: String(thread.lastMessage?.text || ''),
-                updatedAt: thread.updatedAt || thread.lastMessage?.at || null
-            };
-        })
-        .sort((a, b) => {
-            const aDate = coerceDate(a.updatedAt);
-            const bDate = coerceDate(b.updatedAt);
-            return (bDate?.getTime() || 0) - (aDate?.getTime() || 0);
-        });
+    const threadByTarget = new Map((window.chatState.dmThreads || []).map(thread => [thread.targetUid, thread]));
+    const orderedFriends = [...friends].sort((a, b) => {
+        const aThread = threadByTarget.get(a.uid);
+        const bThread = threadByTarget.get(b.uid);
+        const aTime = coerceDate(aThread?.updatedAt || aThread?.lastMessage?.at)?.getTime() || 0;
+        const bTime = coerceDate(bThread?.updatedAt || bThread?.lastMessage?.at)?.getTime() || 0;
+        if (aTime !== bTime) return bTime - aTime;
+        return String(a.username || '').localeCompare(String(b.username || ''));
+    });
 
     const circles = friends.slice(0, 20).map(friend => {
         const isOnline = onlineIds.has(friend.uid);
+        const safeUid = escapeAttr(friend.uid || '');
         const encodedName = encodeURIComponent(friend.username || 'Player');
         const encodedAvatar = encodeURIComponent(friend.avatar || '');
         return `
-            <button onclick="window.startDm('${friend.uid}','${encodedName}','${encodedAvatar}')" class="flex-shrink-0 w-16 text-center">
+            <button onclick="window.startDm('${safeUid}','${encodedName}','${encodedAvatar}')" class="flex-shrink-0 w-16 text-center">
                 <div class="relative mx-auto w-12 h-12 rounded-full overflow-hidden border ${isOnline ? 'border-green-400/70' : 'border-white/15'}">
                     <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-12 h-12 object-cover">
                     <span class="absolute bottom-0 right-0 w-3 h-3 rounded-full border border-black ${isOnline ? 'bg-green-400' : 'bg-gray-500'}"></span>
@@ -1636,39 +1672,45 @@ function renderMobileDirectPanel(list) {
         `;
     }).join('');
 
-    const rows = threads.map(thread => {
-        const encodedName = encodeURIComponent(thread.username || 'Player');
-        const encodedAvatar = encodeURIComponent(thread.avatar || '');
-        const isActive = window.chatState.activeDmFriend?.uid === thread.uid;
+    const rows = orderedFriends.map(friend => {
+        const thread = threadByTarget.get(friend.uid);
+        const isOnline = onlineIds.has(friend.uid);
+        const encodedName = encodeURIComponent(friend.username || 'Player');
+        const encodedAvatar = encodeURIComponent(friend.avatar || '');
+        const isActive = window.chatState.activeDmFriend?.uid === friend.uid;
+        const unread = Number(thread?.unreadCount || 0);
+        const preview = thread?.lastMessage?.text || (isOnline ? 'Active now' : 'Tap to start chat');
+        const time = thread?.updatedAt || thread?.lastMessage?.at || null;
+        const safeUid = escapeAttr(friend.uid || '');
         return `
-            <div class="w-full rounded-xl p-2 flex items-center gap-2 ${isActive ? 'bg-purple-600/20 border border-purple-500/40' : 'bg-white/5 border border-white/10'}">
-                <button onclick="window.openUserProfile('${thread.uid}')" class="w-10 h-10 rounded-full overflow-hidden border border-white/10">
-                    <img src="${thread.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-10 h-10 rounded-full object-cover">
-                </button>
-                <button onclick="window.openUserProfile('${thread.uid}')" class="flex-1 min-w-0 text-left">
-                    <div class="text-xs font-bold ${isActive ? 'text-white' : 'text-gray-200'} truncate">${escapeHtml(thread.username || 'Player')}</div>
-                    <div class="text-[10px] ${thread.isOnline ? 'text-green-300' : 'text-gray-500'} truncate">${escapeHtml(thread.text)}</div>
-                </button>
-                <div class="text-right">
-                    <div class="text-[10px] text-gray-500 mb-1">${formatTime(thread.updatedAt)}</div>
-                    ${thread.unread > 0 ? `<span class="inline-flex items-center justify-center min-w-[1.2rem] px-1 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-bold">${thread.unread}</span>` : ''}
+            <button onclick="window.startDm('${safeUid}','${encodedName}','${encodedAvatar}')" class="chat-v2-dm-row ${isActive ? 'active' : ''}">
+                <div class="chat-v2-dm-avatar-wrap">
+                    <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-10 h-10 rounded-full object-cover">
+                    <span class="chat-v2-dm-online-dot ${isOnline ? 'online' : ''}"></span>
                 </div>
-                <button onclick="window.startDm('${thread.uid}','${encodedName}','${encodedAvatar}')" class="px-2 py-1 rounded bg-purple-600 hover:bg-purple-500 text-[10px] font-bold text-white">Chat</button>
-            </div>
+                <div class="chat-v2-dm-main">
+                    <div class="chat-v2-dm-top">
+                        <span class="chat-v2-dm-name">${escapeHtml(friend.username || 'Player')}</span>
+                        <span class="chat-v2-dm-time">${time ? formatTime(time) : ''}</span>
+                    </div>
+                    <div class="chat-v2-dm-preview ${unread > 0 ? 'unread' : ''}">${escapeHtml(preview)}</div>
+                </div>
+                ${unread > 0 ? `<span class="chat-v2-unread-badge">${unread}</span>` : ''}
+            </button>
         `;
     }).join('');
 
     list.innerHTML = `
         <div class="space-y-3 bg-black/20 border border-white/10 rounded-xl p-2 max-h-[54vh] overflow-y-auto">
             <div>
-                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1 py-1">Friends</div>
+                <div class="chat-v2-section-label px-1 py-1">Friends</div>
                 <div class="flex gap-2 overflow-x-auto pb-1">
                     ${circles || `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
                 </div>
             </div>
             <div>
-                <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1 py-1">Messages</div>
-                <div class="space-y-2">
+                <div class="chat-v2-section-label px-1 py-1">Messages</div>
+                <div class="chat-v2-dm-list">
                     ${rows || `<div class="text-xs text-gray-500 px-1">No chats yet. Tap a friend above to start chatting.</div>`}
                 </div>
             </div>
@@ -1680,17 +1722,36 @@ function renderMobileGlobalStrip(container) {
     const onlineUsers = (window.chatState.onlineUsers || []).slice(0, 20);
     if (!container) return;
     container.innerHTML = `
-        <div class="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1 py-2">Online In Global</div>
-        <div class="flex gap-2 overflow-x-auto pb-1">
+        <div class="chat-v2-section-label px-1 py-2">Online Members</div>
+        <div class="chat-v2-online-rail pb-1">
             ${onlineUsers.length ? onlineUsers.map(user => `
-                <button onclick="window.openUserProfile('${user.uid}')" class="flex-shrink-0 w-16 text-center">
-                    <div class="relative mx-auto w-12 h-12 rounded-full overflow-hidden border border-white/15">
-                        <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-12 h-12 object-cover">
-                        <span class="absolute bottom-0 right-0 w-3 h-3 rounded-full border border-black ${user.status?.state === 'online' ? 'bg-green-400' : 'bg-gray-500'}"></span>
+                <button onclick="window.openUserProfile('${escapeAttr(user.uid)}')" class="chat-v2-online-item">
+                    <div class="chat-v2-avatar-ring">
+                        <img src="${user.avatar || 'assets/icons/logo.jpg'}" alt="avatar">
+                        <span class="chat-v2-online-dot ${String(user.status?.state || '').toLowerCase() === 'online' ? 'online' : ''}"></span>
                     </div>
-                    <div class="text-[10px] text-gray-300 truncate mt-1">${escapeHtml(user.username || 'Player')}</div>
+                    <div class="chat-v2-online-name">${escapeHtml(user.username || 'Player')}</div>
                 </button>
             `).join('') : `<div class="text-xs text-gray-500 px-1">No online players right now.</div>`}
+        </div>
+        <div class="chat-v2-section-label px-1 py-2">Channels</div>
+        <div class="space-y-2 px-1 pb-1">
+            <button onclick="window.openGlobalChannel()" class="chat-v2-channel-item active">
+                <div class="chat-v2-channel-icon globe"><i class="fas fa-earth-americas"></i></div>
+                <div class="min-w-0 flex-1 text-left">
+                    <div class="chat-v2-channel-name">Global Chat</div>
+                    <div class="chat-v2-channel-meta">${Number((window.chatState.onlineUsers || []).length || 0)} players online</div>
+                </div>
+                <div class="chat-v2-channel-badge">Live</div>
+            </button>
+            <button onclick="window.openSupportChannel()" class="chat-v2-channel-item">
+                <div class="chat-v2-channel-icon support"><i class="fas fa-headset"></i></div>
+                <div class="min-w-0 flex-1 text-left">
+                    <div class="chat-v2-channel-name">Support</div>
+                    <div class="chat-v2-channel-meta">Help center channel</div>
+                </div>
+                <div class="chat-v2-channel-badge muted">Soon</div>
+            </button>
         </div>
     `;
 }
@@ -1700,17 +1761,18 @@ function updateMobileChatPanels() {
     const dmPanel = document.getElementById('mobile-dm-list-panel');
     const mobileTabs = document.querySelector('.mobile-chat-tabs');
     const messagesArea = document.getElementById('chat-messages-area');
-    const dmHeader = document.getElementById('mobile-dm-conversation-header');
-    if (!globalStrip || !dmPanel || !mobileTabs || !messagesArea || !dmHeader) return;
+    const conversationHeader = document.getElementById('mobile-chat-conversation-header');
+    if (!globalStrip || !dmPanel || !mobileTabs || !messagesArea || !conversationHeader) return;
 
     const isMobile = isMobileViewport();
     if (!isMobile) {
         globalStrip.classList.add('hidden');
         dmPanel.classList.add('hidden');
-        dmHeader.classList.add('hidden');
+        conversationHeader.classList.add('hidden');
         messagesArea.classList.remove('hidden');
         mobileTabs.classList.remove('hidden');
         window.chatState.mobileDmConversationOpen = false;
+        window.chatState.mobileGlobalConversationOpen = false;
         updateChatComposerState();
         syncMobileShellVisibility();
         return;
@@ -1718,25 +1780,36 @@ function updateMobileChatPanels() {
 
     if (window.activeChatTab === 'global') {
         window.chatState.mobileDmConversationOpen = false;
-        globalStrip.classList.remove('hidden');
-        dmPanel.classList.add('hidden');
-        dmHeader.classList.add('hidden');
-        messagesArea.classList.remove('hidden');
-        mobileTabs.classList.remove('hidden');
-        renderMobileGlobalStrip(globalStrip);
-    } else {
-        const hasActiveConversation = Boolean(window.chatState.activeDmFriend && window.chatState.mobileDmConversationOpen);
-        if (hasActiveConversation) {
+        const hasGlobalConversation = Boolean(window.chatState.mobileGlobalConversationOpen);
+        if (hasGlobalConversation) {
+            conversationHeader.classList.remove('hidden');
             globalStrip.classList.add('hidden');
             dmPanel.classList.add('hidden');
-            dmHeader.classList.remove('hidden');
             messagesArea.classList.remove('hidden');
             mobileTabs.classList.add('hidden');
-            updateMobileDmConversationHeader();
+            updateMobileConversationHeader('global');
         } else {
+            conversationHeader.classList.add('hidden');
+            globalStrip.classList.remove('hidden');
+            dmPanel.classList.add('hidden');
+            messagesArea.classList.add('hidden');
+            mobileTabs.classList.remove('hidden');
+            renderMobileGlobalStrip(globalStrip);
+        }
+    } else {
+        window.chatState.mobileGlobalConversationOpen = false;
+        const hasActiveConversation = Boolean(window.chatState.activeDmFriend && window.chatState.mobileDmConversationOpen);
+        if (hasActiveConversation) {
+            conversationHeader.classList.remove('hidden');
+            globalStrip.classList.add('hidden');
+            dmPanel.classList.add('hidden');
+            messagesArea.classList.remove('hidden');
+            mobileTabs.classList.add('hidden');
+            updateMobileConversationHeader('dm');
+        } else {
+            conversationHeader.classList.add('hidden');
             globalStrip.classList.add('hidden');
             dmPanel.classList.remove('hidden');
-            dmHeader.classList.add('hidden');
             messagesArea.classList.add('hidden');
             mobileTabs.classList.remove('hidden');
             renderMobileDirectPanel(dmPanel);
@@ -1746,10 +1819,63 @@ function updateMobileChatPanels() {
     syncMobileShellVisibility();
 }
 
-function updateMobileDmConversationHeader() {
-    const profileBtn = document.getElementById('mobileDmHeaderProfileBtn');
+function updateMobileConversationHeader(mode = 'dm') {
+    const backBtn = document.getElementById('mobileChatConversationBackBtn');
+    const profileBtn = document.getElementById('mobileChatHeaderProfileBtn');
+    if (!backBtn || !profileBtn) return;
+    const currentUser = window.currentUserData || {};
+    const currentAvatar = currentUser.avatar || 'assets/icons/logo.jpg';
+    const friendsCount = Number((window.chatState.friends || []).length || 0);
+
+    if (mode === 'global') {
+        const onlineCount = Number((window.chatState.onlineUsers || []).length || 0);
+        profileBtn.innerHTML = `
+            <div class="w-9 h-9 rounded-full overflow-hidden border border-white/10">
+                <img src="assets/icons/logo.jpg" alt="avatar" class="w-9 h-9 object-cover">
+            </div>
+            <div class="min-w-0">
+                <div class="text-sm font-bold text-white truncate">Global Chat</div>
+                <div class="text-[11px] text-gray-400 truncate">${onlineCount ? `${onlineCount} online` : 'Community channel'}</div>
+            </div>
+        `;
+        profileBtn.onclick = () => {};
+        backBtn.onclick = () => window.closeMobileGlobalConversation();
+        return;
+    }
+
+    if (mode === 'global-list') {
+        const onlineCount = Number((window.chatState.onlineUsers || []).length || 0);
+        profileBtn.innerHTML = `
+            <div class="w-9 h-9 rounded-full overflow-hidden border border-white/10">
+                <img src="assets/icons/logo.jpg" alt="avatar" class="w-9 h-9 object-cover">
+            </div>
+            <div class="min-w-0">
+                <div class="text-sm font-bold text-white truncate">Global Chat</div>
+                <div class="text-[11px] text-gray-400 truncate">${onlineCount ? `${onlineCount} online` : 'Choose a channel'}</div>
+            </div>
+        `;
+        profileBtn.onclick = () => window.openMyProfile?.();
+        backBtn.onclick = () => window.switchView('home');
+        return;
+    }
+
+    if (mode === 'dms-list') {
+        profileBtn.innerHTML = `
+            <div class="w-9 h-9 rounded-full overflow-hidden border border-white/10">
+                <img src="${currentAvatar}" alt="avatar" class="w-9 h-9 object-cover">
+            </div>
+            <div class="min-w-0">
+                <div class="text-sm font-bold text-white truncate">Messages</div>
+                <div class="text-[11px] text-gray-400 truncate">${friendsCount ? `${friendsCount} friends` : 'No friends yet'}</div>
+            </div>
+        `;
+        profileBtn.onclick = () => window.openMyProfile?.();
+        backBtn.onclick = () => window.switchView('home');
+        return;
+    }
+
     const friend = window.chatState.activeDmFriend;
-    if (!profileBtn || !friend) return;
+    if (!friend) return;
     const targetUid = friend.uid || '';
     const safeName = escapeHtml(friend.username || 'Player');
     const avatar = friend.avatar || 'assets/icons/logo.jpg';
@@ -1764,20 +1890,94 @@ function updateMobileDmConversationHeader() {
         </div>
     `;
     profileBtn.onclick = () => window.openUserProfile(targetUid);
+    backBtn.onclick = () => window.closeMobileDmConversation();
 }
+
+function updateChatDesktopHeader() {
+    const root = document.getElementById('chatDesktopHeader');
+    const profileBtn = document.getElementById('chatDesktopProfileBtn');
+    const titleEl = document.getElementById('chatDesktopTitle');
+    const subEl = document.getElementById('chatDesktopSub');
+    const avatarEl = document.getElementById('chatDesktopAvatar');
+    const infoAvatar = document.getElementById('chatInfoAvatar');
+    const infoTitle = document.getElementById('chatInfoTitle');
+    const infoSub = document.getElementById('chatInfoSub');
+    const infoProfileBtn = document.getElementById('chatInfoProfileBtn');
+    if (!root || !profileBtn || !titleEl || !subEl || !avatarEl) return;
+
+    const isGlobal = window.activeChatTab === 'global';
+    const friend = window.chatState.activeDmFriend || null;
+    const onlineIds = new Set((window.chatState.onlineUsers || []).map(u => u.uid));
+
+    if (isGlobal) {
+        const onlineCount = Number((window.chatState.onlineUsers || []).length || 0);
+        titleEl.textContent = 'Global Chat';
+        subEl.textContent = onlineCount > 0 ? `${onlineCount} online` : 'Community channel';
+        avatarEl.src = 'assets/icons/logo.jpg';
+        profileBtn.onclick = () => {};
+        if (infoAvatar) infoAvatar.src = 'assets/icons/logo.jpg';
+        if (infoTitle) infoTitle.textContent = 'Global Chat';
+        if (infoSub) infoSub.textContent = 'Public Hub';
+        if (infoProfileBtn) infoProfileBtn.onclick = () => {};
+        return;
+    }
+
+    if (!friend?.uid) {
+        titleEl.textContent = 'Direct Messages';
+        subEl.textContent = 'Select a friend to start chatting';
+        avatarEl.src = 'assets/icons/logo.jpg';
+        profileBtn.onclick = () => {};
+        if (infoAvatar) infoAvatar.src = 'assets/icons/logo.jpg';
+        if (infoTitle) infoTitle.textContent = 'Direct Messages';
+        if (infoSub) infoSub.textContent = 'Pick a conversation';
+        if (infoProfileBtn) infoProfileBtn.onclick = () => {};
+        return;
+    }
+
+    titleEl.textContent = friend.username || 'Player';
+    subEl.textContent = onlineIds.has(friend.uid) ? 'Online' : 'Offline';
+    avatarEl.src = friend.avatar || 'assets/icons/logo.jpg';
+    profileBtn.onclick = () => window.openUserProfile(friend.uid);
+    if (infoAvatar) infoAvatar.src = friend.avatar || 'assets/icons/logo.jpg';
+    if (infoTitle) infoTitle.textContent = friend.username || 'Player';
+    if (infoSub) infoSub.textContent = onlineIds.has(friend.uid) ? 'Online' : 'Offline';
+    if (infoProfileBtn) infoProfileBtn.onclick = () => window.openUserProfile(friend.uid);
+}
+
+window.openGlobalChannel = function () {
+    const isMobile = isMobileViewport();
+    window.switchChatTab('global', false, false, isMobile ? true : null);
+};
+
+window.openSupportChannel = function () {
+    window.switchChatTab('global', false, false, false);
+    showToast('Support channel is coming soon', 'info');
+};
 
 /* -------------------------------------------------------------------------- */
 /*                           CHAT LISTENERS & ACTIONS                         */
 /* -------------------------------------------------------------------------- */
 
-window.switchChatTab = function (tab, skipListRefresh = false, openConversation = null) {
+window.switchChatTab = function (tab, skipListRefresh = false, openConversation = null, openGlobalConversation = null) {
     const prevTab = window.activeChatTab;
     window.activeChatTab = tab === 'dms' ? 'dms' : 'global';
     const isMobile = isMobileViewport();
 
     if (window.activeChatTab === 'global') {
         window.chatState.mobileDmConversationOpen = false;
+        if (isMobile) {
+            if (openGlobalConversation === true) {
+                window.chatState.mobileGlobalConversationOpen = true;
+            } else if (openGlobalConversation === false) {
+                window.chatState.mobileGlobalConversationOpen = false;
+            } else if (prevTab !== 'global') {
+                window.chatState.mobileGlobalConversationOpen = false;
+            }
+        } else {
+            window.chatState.mobileGlobalConversationOpen = false;
+        }
     } else {
+        window.chatState.mobileGlobalConversationOpen = false;
         if (!window.chatState.activeDmFriend && !isMobile && (window.chatState.friends || []).length) {
             const firstFriend = window.chatState.friends[0];
             window.chatState.activeDmFriend = {
@@ -1806,6 +2006,7 @@ window.switchChatTab = function (tab, skipListRefresh = false, openConversation 
     updateChatTabStyles();
     updateMobileChatPanels();
     updateChatComposerState();
+    updateChatDesktopHeader();
 
     if (!skipListRefresh) renderChatListContent();
     if (window.activeChatTab === 'global') {
@@ -1820,12 +2021,11 @@ function updateChatTabStyles() {
     const desktopDms = document.getElementById('tab-dms');
     const mobileGlobal = document.getElementById('tab-mobile-global');
     const mobileDms = document.getElementById('tab-mobile-dms');
-    const pendingRequests = (window.chatState.requests || []).length;
 
     if (desktopGlobal) desktopGlobal.textContent = "Global";
     if (mobileGlobal) mobileGlobal.textContent = "Global";
-    if (desktopDms) desktopDms.textContent = pendingRequests > 0 ? `DMs (${pendingRequests})` : "DMs";
-    if (mobileDms) mobileDms.textContent = pendingRequests > 0 ? `DMs (${pendingRequests})` : "DMs";
+    if (desktopDms) desktopDms.textContent = "DMs";
+    if (mobileDms) mobileDms.textContent = "DMs";
 
     setTabClasses(desktopGlobal, window.activeChatTab === 'global');
     setTabClasses(desktopDms, window.activeChatTab === 'dms');
@@ -1843,27 +2043,18 @@ window.toggleMobileChatList = function () {
 
 function setTabClasses(el, active) {
     if (!el) return;
-    el.classList.remove('bg-purple-600', 'text-white', 'shadow-lg', 'text-gray-500', 'hover:bg-white/5');
-    if (active) {
-        el.classList.add('bg-purple-600', 'text-white', 'shadow-lg');
-    } else {
-        el.classList.add('text-gray-500', 'hover:bg-white/5');
-    }
+    el.classList.toggle('active', Boolean(active));
 }
 
 function setMobileTabClasses(el, active) {
     if (!el) return;
-    el.classList.remove('bg-purple-600', 'bg-white/5', 'text-white', 'text-gray-400', 'border-b-2', 'border-purple-400', 'border-transparent');
-    if (active) {
-        el.classList.add('bg-purple-600', 'text-white', 'border-b-2', 'border-purple-400');
-    } else {
-        el.classList.add('bg-white/5', 'text-gray-400', 'border-b-2', 'border-transparent');
-    }
+    el.classList.toggle('active', Boolean(active));
 }
 
 function renderGlobalMessages() {
     const container = document.getElementById('chat-messages-area');
     if (!container) return;
+    updateChatDesktopHeader();
 
     const msgs = window.chatState.globalMessages || [];
     if (!msgs.length) {
@@ -1879,6 +2070,7 @@ function renderGlobalMessages() {
 function renderDirectMessages() {
     const container = document.getElementById('chat-messages-area');
     if (!container) return;
+    updateChatDesktopHeader();
 
     if (!window.Services?.state?.currentUser) {
         container.innerHTML = `<div class="text-center text-gray-500 mt-10">Login to use direct messages.</div>`;
@@ -2028,10 +2220,16 @@ window.startDm = function (uid, encodedName, encodedAvatar) {
     window.chatState.directMessages = [];
     window.switchChatTab('dms', false, isMobileViewport());
     window.Services?.chat?.listenToDirectChat?.(uid);
+    updateChatDesktopHeader();
 };
 
 window.closeMobileDmConversation = function () {
     window.chatState.mobileDmConversationOpen = false;
+    updateMobileChatPanels();
+};
+
+window.closeMobileGlobalConversation = function () {
+    window.chatState.mobileGlobalConversationOpen = false;
     updateMobileChatPanels();
 };
 
