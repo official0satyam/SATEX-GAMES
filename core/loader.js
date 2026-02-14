@@ -66,7 +66,7 @@ async function loadGames() {
         }
     }
 
-    renderGames(allGames);
+    renderFullHome(allGames);
     renderSuggestions(allGames);
     renderTagsCloud();
 }
@@ -424,6 +424,17 @@ function exitGame(isFromHistory = false) {
 // Reuse existing renderGames for the main page
 function renderGames(games) {
     const grid = document.getElementById('gamesGrid');
+    const featured = document.getElementById('homeFeatured');
+
+    // Toggle Featured Section
+    if (featured) {
+        if (games === window.allGames) {
+            featured.style.display = 'block';
+        } else {
+            featured.style.display = 'none';
+        }
+    }
+
     if (!grid) return;
 
     if (!games) {
@@ -592,22 +603,19 @@ function renderFullSearchResults(games) {
         const gameUrl = game.url || game.path;
         const thumbUrl = game.thumbnail || `https://via.placeholder.com/400?text=${encodeURIComponent(game.title)}`;
         const card = document.createElement('div');
-        card.className = 'game-card';
+
+        // Use new COMPACT structure
+        card.className = 'compact-search-card'; // Defined in home.css
         card.style.animationDelay = `${Math.min(index * 0.05, 1)}s`;
         card.onclick = () => playGame(gameUrl, game.title);
-        const tagsHtml = game.tags ? game.tags.slice(0, 3).map(tag => `<span class="text-[9px] bg-black/50 px-2 py-0.5 rounded text-gray-400">#${tag}</span>`).join('') : '';
+
         card.innerHTML = `
-            <div class="card-image-box">
-                <img src="${thumbUrl}" alt="${game.title}" loading="lazy">
-                <div class="card-gradient"></div>
+            <div class="compact-thumb-box">
+                <img src="${thumbUrl}" class="compact-thumb" alt="${game.title}" loading="lazy">
             </div>
-            <div class="card-info">
-                 <div class="game-badge">
-                    <span class="badge-dot"></span>
-                    <span class="badge-text">${game.category}</span>
-                </div>
-                <h3 class="card-title mb-2">${game.title}</h3>
-                <div class="flex gap-1 flex-wrap">${tagsHtml}</div>
+            <div class="compact-info">
+                <div class="compact-cat">${game.category || 'Arcade'}</div>
+                <h3 class="compact-title">${game.title}</h3>
             </div>
         `;
         grid.appendChild(card);
@@ -638,3 +646,142 @@ if (document.readyState === 'loading') {
 } else {
     loadGames();
 }
+
+/* ================= FAVORITES LOGIC ================= */
+function toggleFavorite(gameId) {
+    if (!gameId) return;
+    let favorites = JSON.parse(localStorage.getItem('satex_favorites') || '[]');
+    const index = favorites.indexOf(gameId);
+
+    if (index > -1) {
+        favorites.splice(index, 1);
+        if (typeof showToast === 'function') showToast("Removed from My List");
+    } else {
+        favorites.push(gameId);
+        if (typeof showToast === 'function') showToast("Added to My List", "success");
+    }
+    localStorage.setItem('satex_favorites', JSON.stringify(favorites));
+
+    // Update UI if hero is showing this game
+    const btn = document.getElementById(`fav-btn-${gameId}`);
+    if (btn) {
+        if (index > -1) {
+            btn.innerHTML = '<i class="fa-solid fa-plus"></i> ADD TO LIST';
+            btn.classList.remove('active');
+        } else {
+            btn.innerHTML = '<i class="fa-solid fa-check"></i> ADDED';
+            btn.classList.add('active');
+        }
+    }
+}
+
+function isFavorite(gameId) {
+    const favorites = JSON.parse(localStorage.getItem('satex_favorites') || '[]');
+    return favorites.includes(gameId);
+}
+window.toggleFavorite = toggleFavorite;
+
+/* ================= HOME PAGE LOGIC ================= */
+
+function renderFullHome(games) {
+    if (!games || games.length === 0) return;
+
+    // Reset Title
+    const title = document.querySelector('.section-title');
+    if (title) title.innerHTML = '<i class="fa-solid fa-gamepad text-blue-500"></i> All Games';
+
+    // 1. Hero
+    const heroGame = games.find(g => g.title.toLowerCase().includes('neon')) || games[Math.floor(Math.random() * games.length)];
+    renderHero(heroGame);
+
+    // 2. Trending (Random 6)
+    const trending = [...games].sort(() => 0.5 - Math.random()).slice(0, 10);
+    renderRail('trendingRail', trending);
+
+    // 3. Action (Filter)
+    const action = games.filter(g => g.category === 'Action').slice(0, 10);
+    renderRail('actionRail', action);
+
+    // 4. Render Grid for bottom (and hide Featured just in case logic was weird)
+    renderGames(games);
+}
+
+function renderHero(game) {
+    const container = document.getElementById('homeHeroContainer');
+    if (!container || !game) return;
+
+    // We can use a high-res image if available, else thumbnail
+    const bg = game.thumbnail || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=2000';
+    const isFav = isFavorite(game.id || game.title);
+    const favText = isFav ? '<i class="fa-solid fa-check"></i> ADDED' : '<i class="fa-solid fa-plus"></i> ADD TO LIST';
+
+    container.innerHTML = `
+        <section class="hero-banner">
+            <img src="${bg}" class="hero-bg">
+            <div class="hero-overlay"></div>
+            <div class="hero-content">
+                <div class="tag-pill"><i class="fa-solid fa-star mr-1"></i> FEATURED</div>
+                <h1 class="hero-title">${game.title}</h1>
+                <p class="text-gray-300 mb-6 max-w-lg leading-relaxed line-clamp-2">Experience the thrill of ${game.title}. Play instantly in your browser.</p>
+                <div class="hero-actions">
+                    <button class="btn-primary" onclick="playGame('${game.url || game.path}', '${game.title}')"><i class="fa-solid fa-play"></i> PLAY NOW</button>
+                    <button id="fav-btn-${game.id || game.title}" class="btn-glass ${isFav ? 'active' : ''}" onclick="toggleFavorite('${game.id || game.title}')">${favText}</button>
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function renderRail(elementId, games) {
+    const rail = document.getElementById(elementId);
+    if (!rail) return;
+
+    rail.innerHTML = games.map(game => `
+        <div class="rail-card" onclick="playGame('${game.url || game.path}', '${game.title}')">
+            <img src="${game.thumbnail || 'assets/icons/logo.jpg'}" class="game-img">
+            <div class="play-icon"><i class="fa-solid fa-play"></i></div>
+            <div class="game-overlay">
+                <h4 class="font-bold text-white text-sm">${game.title}</h4>
+                <p class="text-[10px] text-gray-300 uppercase">${game.category || 'Arcade'}</p>
+            </div>
+        </div>
+    `).join('');
+}
+
+window.filterGames = function (category) {
+    // UI Update
+    document.querySelectorAll('.cat-tag').forEach(tag => {
+        if (tag.innerText.trim() === category || (category === 'All' && tag.innerText.trim() === 'All')) {
+            tag.classList.add('active');
+        } else {
+            tag.classList.remove('active');
+        }
+    });
+
+    const homeFeatured = document.getElementById('homeFeatured');
+    const gamesGrid = document.getElementById('gamesGrid');
+    const title = document.querySelector('.section-title');
+
+    if (category === 'All') {
+        if (homeFeatured) homeFeatured.style.display = 'block';
+        if (title) title.innerHTML = '<i class="fa-solid fa-gamepad text-blue-500"></i> All Games';
+        renderGames(window.allGames);
+    } else {
+        if (homeFeatured) homeFeatured.style.display = 'none';
+
+        // Update Title - Show Category Name
+        if (title) title.innerHTML = `<i class="fa-solid fa-layer-group text-purple-500"></i> ${category} Games`;
+
+        // Filter Games
+        const filtered = window.allGames.filter(g => g.category === category || (g.tags && g.tags.includes(category.toLowerCase())));
+        renderGames(filtered);
+    }
+
+    // Scroll to filters/grid so user sees change immediately
+    const filterContainer = document.getElementById('homeCategories') || gamesGrid;
+    if (filterContainer) {
+        const yOffset = -100; // Account for sticky header
+        const y = filterContainer.getBoundingClientRect().top + window.pageYOffset + yOffset;
+        window.scrollTo({ top: y, behavior: 'smooth' });
+    }
+};

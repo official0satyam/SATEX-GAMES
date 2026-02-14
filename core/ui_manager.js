@@ -202,9 +202,20 @@ window.addEventListener('popstate', (e) => {
 });
 
 window.switchView = function (viewName) {
+    // Ensuring search page closes on any navigation
+    if (typeof window.closeSearchPage === 'function') window.closeSearchPage();
+
     const currentParams = new URLSearchParams(window.location.search);
     const currentView = currentParams.get('view') || 'home';
-    if (viewName === currentView) return;
+
+    // Check if we are already on the view, but if it is 'home', we might want to reset filters
+    if (viewName === currentView) {
+        if (viewName === 'home') {
+            // Force reset of Home
+            _renderView('home', false);
+        }
+        return;
+    }
 
     const url = viewName === 'home' ? window.location.pathname : `?view=${viewName}`;
     history.pushState({ view: viewName }, '', url);
@@ -239,12 +250,43 @@ function _renderView(viewName, isPush) {
     document.querySelectorAll('.sidebar-item').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.bottom-nav-item').forEach(btn => btn.classList.remove('active'));
 
+    // Manage Body Classes for specific layout overrides
+    if (viewName === 'profile') {
+        document.body.classList.add('view-profile-active');
+    } else {
+        document.body.classList.remove('view-profile-active');
+    }
+
+    // Manage Home Body Class
+    if (viewName === 'home') {
+        document.body.classList.add('view-home-active');
+    } else {
+        document.body.classList.remove('view-home-active');
+    }
+
     const sideBtn = document.querySelector(`.sidebar-item[data-view="${viewName}"]`);
     if (sideBtn) sideBtn.classList.add('active');
 
     document.querySelectorAll('.bottom-nav-item').forEach(btn => {
         if (btn.onclick && btn.onclick.toString().includes(viewName)) btn.classList.add('active');
     });
+
+    // Reset Home View State if switching to Home
+    if (viewName === 'home' && window.renderFullHome && window.allGames) {
+        const homeFeatured = document.getElementById('homeFeatured');
+        if (homeFeatured) homeFeatured.style.display = 'block'; // FORCE VISIBLE
+        window.renderFullHome(window.allGames);
+
+        // Reset category pills
+        document.querySelectorAll('.cat-tag').forEach(tag => tag.classList.remove('active'));
+        const allTag = Array.from(document.querySelectorAll('.cat-tag')).find(t => t.innerText.trim().includes('All'));
+        if (allTag) allTag.classList.add('active');
+        // Reset sidebar active state
+        document.querySelectorAll('.sidebar-item').forEach(b => b.classList.remove('active'));
+        try {
+            document.querySelector('.sidebar-item[onclick*="home"]').classList.add('active');
+        } catch (e) { }
+    }
 
     let target = document.getElementById(`view-${viewName}`);
     if (viewName === 'social') {
@@ -1606,16 +1648,16 @@ function renderDirectListPanel(list) {
                 <div class="chat-v2-section-label">Messages</div>
                 <div class="chat-v2-dm-list">
                     ${orderedFriends.length ? orderedFriends.map(friend => {
-            const isOnline = onlineIds.has(friend.uid);
-            const thread = threadByTarget.get(friend.uid);
-            const unread = Number(thread?.unreadCount || 0);
-            const encodedName = encodeURIComponent(friend.username || 'Player');
-            const encodedAvatar = encodeURIComponent(friend.avatar || '');
-            const preview = thread?.lastMessage?.text || (isOnline ? 'Active now' : 'Tap to start chat');
-            const time = thread?.updatedAt || thread?.lastMessage?.at || null;
-            const safeUid = escapeAttr(friend.uid || '');
-            const isActive = window.chatState.activeDmFriend?.uid === friend.uid;
-            return `
+        const isOnline = onlineIds.has(friend.uid);
+        const thread = threadByTarget.get(friend.uid);
+        const unread = Number(thread?.unreadCount || 0);
+        const encodedName = encodeURIComponent(friend.username || 'Player');
+        const encodedAvatar = encodeURIComponent(friend.avatar || '');
+        const preview = thread?.lastMessage?.text || (isOnline ? 'Active now' : 'Tap to start chat');
+        const time = thread?.updatedAt || thread?.lastMessage?.at || null;
+        const safeUid = escapeAttr(friend.uid || '');
+        const isActive = window.chatState.activeDmFriend?.uid === friend.uid;
+        return `
                         <button onclick="window.startDm('${safeUid}','${encodedName}','${encodedAvatar}')" class="chat-v2-dm-row ${isActive ? 'active' : ''}">
                             <div class="chat-v2-dm-avatar-wrap">
                                 <img src="${friend.avatar || 'assets/icons/logo.jpg'}" alt="avatar" class="w-10 h-10 rounded-full object-cover">
@@ -1631,7 +1673,7 @@ function renderDirectListPanel(list) {
                             ${unread > 0 ? `<span class="chat-v2-unread-badge">${unread}</span>` : ''}
                         </button>
                     `;
-        }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
+    }).join('') : `<div class="text-xs text-gray-500 px-1">No friends yet.</div>`}
                 </div>
             </div>
         </div>
@@ -1838,7 +1880,7 @@ function updateMobileConversationHeader(mode = 'dm') {
                 <div class="text-[11px] text-gray-400 truncate">${onlineCount ? `${onlineCount} online` : 'Community channel'}</div>
             </div>
         `;
-        profileBtn.onclick = () => {};
+        profileBtn.onclick = () => { };
         backBtn.onclick = () => window.closeMobileGlobalConversation();
         return;
     }
@@ -1914,11 +1956,11 @@ function updateChatDesktopHeader() {
         titleEl.textContent = 'Global Chat';
         subEl.textContent = onlineCount > 0 ? `${onlineCount} online` : 'Community channel';
         avatarEl.src = 'assets/icons/logo.jpg';
-        profileBtn.onclick = () => {};
+        profileBtn.onclick = () => { };
         if (infoAvatar) infoAvatar.src = 'assets/icons/logo.jpg';
         if (infoTitle) infoTitle.textContent = 'Global Chat';
         if (infoSub) infoSub.textContent = 'Public Hub';
-        if (infoProfileBtn) infoProfileBtn.onclick = () => {};
+        if (infoProfileBtn) infoProfileBtn.onclick = () => { };
         return;
     }
 
@@ -1926,11 +1968,11 @@ function updateChatDesktopHeader() {
         titleEl.textContent = 'Direct Messages';
         subEl.textContent = 'Select a friend to start chatting';
         avatarEl.src = 'assets/icons/logo.jpg';
-        profileBtn.onclick = () => {};
+        profileBtn.onclick = () => { };
         if (infoAvatar) infoAvatar.src = 'assets/icons/logo.jpg';
         if (infoTitle) infoTitle.textContent = 'Direct Messages';
         if (infoSub) infoSub.textContent = 'Pick a conversation';
-        if (infoProfileBtn) infoProfileBtn.onclick = () => {};
+        if (infoProfileBtn) infoProfileBtn.onclick = () => { };
         return;
     }
 
@@ -2247,11 +2289,11 @@ function renderMessage(msg, container, scope = 'global') {
         ${!isMe && scope === 'global'
             ? `<div class="flex items-center gap-2 mb-1 ml-1">
                 ${canOpenProfile
-                    ? `<button onclick="window.openUserProfile('${safeUid}')" class="w-7 h-7 rounded-full overflow-hidden border border-white/10">
+                ? `<button onclick="window.openUserProfile('${safeUid}')" class="w-7 h-7 rounded-full overflow-hidden border border-white/10">
                         <img src="${avatar}" alt="avatar" class="w-7 h-7 object-cover">
                     </button>
                     <button onclick="window.openUserProfile('${safeUid}')" class="text-[11px] text-gray-300 font-bold hover:text-white transition-colors">${username}</button>`
-                    : `<div class="w-7 h-7 rounded-full overflow-hidden border border-white/10"><img src="${avatar}" alt="avatar" class="w-7 h-7 object-cover"></div>
+                : `<div class="w-7 h-7 rounded-full overflow-hidden border border-white/10"><img src="${avatar}" alt="avatar" class="w-7 h-7 object-cover"></div>
                     <span class="text-[11px] text-gray-300 font-bold">${username}</span>`}
             </div>`
             : ''}

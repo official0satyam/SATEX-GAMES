@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="core/midnight.css">
   <link rel="stylesheet" href="core/midnight_search.css">
   <link rel="stylesheet" href="core/profile_chat.css">
+  <link rel="stylesheet" href="core/home.css">
 </head>
 
 <body>
@@ -106,13 +107,74 @@
   <main class="main-container" id="mainContainer">
     <!-- HOME VIEW -->
     <div id="view-home" class="view-section active">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
-        <div>
-          <h1 class="text-4xl font-black text-white tracking-tight mb-1">Epic Adventures</h1>
-          <p class="text-gray-500 font-medium">Original games, professional portal.</p>
+      <div id="homeFeatured">
+        <!-- AMBIENT BACKGROUND -->
+        <div class="ambient-glow">
+          <div class="glow-blob blob-1"></div>
+          <div class="glow-blob blob-2"></div>
+        </div>
+
+        <!-- HERO SECTION -->
+        <div id="homeHeroContainer">
+          <!-- Populated by JS -->
+        </div>
+
+        <!-- LIVE TOURNAMENTS (Mockup for UI) -->
+        <div class="section-header">
+          <div class="section-title"><i class="fa-solid fa-tower-broadcast text-red-500"></i> Live Tournaments</div>
+        </div>
+        <div class="live-rail">
+          <div class="live-card">
+            <img src="https://images.unsplash.com/photo-1552820728-8b83bb6b773f?w=200" class="live-thumb">
+            <div class="live-info">
+              <div class="live-status">
+                <div class="pulse-dot"></div> LIVE NOW
+              </div>
+              <h4>FPS Championship</h4>
+              <p>Prize: 10,000 Credits</p>
+            </div>
+          </div>
+          <div class="live-card">
+            <img src="https://images.unsplash.com/photo-1614027164847-1b28cfe1df60?w=200" class="live-thumb">
+            <div class="live-info">
+              <div class="live-status text-yellow-500"><i class="fa-solid fa-clock mr-1"></i> STARTING IN 5M</div>
+              <h4>Speedrun Cup</h4>
+              <p>Prize: Rare Badge</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- CATEGORIES -->
+        <div class="cat-row" id="homeCategories">
+          <!-- Populated by JS or Static -->
+          <div class="cat-tag active" onclick="filterGames('All')"><i class="fa-solid fa-border-all"></i> All</div>
+          <div class="cat-tag" onclick="filterGames('Action')"><i class="fa-solid fa-gun"></i> Action</div>
+          <div class="cat-tag" onclick="filterGames('Racing')"><i class="fa-solid fa-car"></i> Racing</div>
+          <div class="cat-tag" onclick="filterGames('Strategy')"><i class="fa-solid fa-chess"></i> Strategy</div>
+          <div class="cat-tag" onclick="filterGames('Puzzle')"><i class="fa-solid fa-puzzle-piece"></i> Puzzle</div>
+        </div>
+
+        <!-- TRENDING RAIL -->
+        <div class="section-header">
+          <div class="section-title"><i class="fa-solid fa-fire text-orange-500"></i> Trending Now</div>
+        </div>
+        <div class="game-rail" id="trendingRail">
+          <!-- Populated by JS -->
+        </div>
+
+        <!-- ACTION RAIL -->
+        <div class="section-header">
+          <div class="section-title"><i class="fa-solid fa-gun text-purple-500"></i> Best Action Games</div>
+        </div>
+        <div class="game-rail" id="actionRail">
+          <!-- Populated by JS -->
         </div>
       </div>
 
+      <!-- ALL GAMES GRID -->
+      <div class="section-header">
+        <div class="section-title"><i class="fa-solid fa-gamepad text-blue-500"></i> All Games</div>
+      </div>
       <div id="gamesGrid" class="games-grid">
         <!-- Dynamic loading from loader.js -->
       </div>
