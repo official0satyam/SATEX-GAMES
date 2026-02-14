@@ -33,6 +33,7 @@ import {
     getStorage,
     ref as storageRef,
     uploadString,
+    uploadBytes,
     getDownloadURL
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 
@@ -127,37 +128,50 @@ function buildStoragePath(folder, ext = "jpg") {
 async function uploadImageDataUrl(dataUrl, folder) {
     const safeData = String(dataUrl || "").trim();
     if (!safeData.startsWith("data:image/")) {
-        throw new Error("Image data must be a valid data URL");
+        throw new Error("Invalid image format.");
     }
-    const ext = safeData.startsWith("data:image/png")
-        ? "png"
-        : safeData.startsWith("data:image/webp")
-            ? "webp"
-            : "jpg";
 
-    const uploadPath = buildStoragePath(folder, ext);
-    let lastError = null;
-
-    for (const bucketName of storageBucketCandidates) {
-        const bucketStorage = getStorage(app, `gs://${bucketName}`);
-        const fileRef = storageRef(bucketStorage, uploadPath);
-        try {
-            await uploadString(fileRef, safeData, "data_url");
-            return getDownloadURL(fileRef);
-        } catch (error) {
-            lastError = error;
-            const code = String(error?.code || '');
-            // Only continue trying fallback buckets when bucket resolution fails.
-            if (!code.includes('bucket-not-found') && !code.includes('invalid-default-bucket')) {
-                break;
-            }
+    // Convert Base64 to Blob
+    try {
+        const arr = safeData.split(',');
+        const mime = arr[0].match(/:(.*?);/)[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+            u8arr[n] = bstr.charCodeAt(n);
         }
-    }
+        const blob = new Blob([u8arr], { type: mime });
 
-    if (lastError) {
-        throw new Error(mapFirebaseError(lastError, "Image upload failed"));
+        const ext = mime.split('/')[1] || 'jpg';
+        const uploadPath = buildStoragePath(folder, ext);
+
+        console.log(`[Upload] Starting upload to: ${uploadPath} (${blob.size} bytes)`);
+
+        // Explicitly use the bucket URL to avoid default bucket config issues
+        const storage = getStorage(app, "gs://satex-games.appspot.com");
+        const fileRef = storageRef(storage, uploadPath);
+
+        // Metadata
+        const metadata = {
+            contentType: mime,
+        };
+
+        // Upload Blob
+        const uploadTask = uploadBytes(fileRef, blob, metadata);
+
+        // 60s Timeout for slow connections
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out. Check your connection.')), 60000));
+
+        await Promise.race([uploadTask, timeout]);
+        const url = await getDownloadURL(fileRef);
+        console.log("[Upload] Success:", url);
+        return url;
+
+    } catch (error) {
+        console.error("[Upload] Error:", error);
+        throw new Error(mapFirebaseError(error, "Image upload failed. Please try again."));
     }
-    throw new Error("Image upload failed");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -792,8 +806,9 @@ export const FeedService = {
         if (imageDataUrl) {
             imageUrl = await uploadImageDataUrl(imageDataUrl, "feed");
         }
-        if (!safeText && !imageUrl) {
-            throw new Error("Post must include text or image");
+        const gameCheck = (typeof payload === 'object' ? payload?.game : null);
+        if (!safeText && !imageUrl && !gameCheck) {
+            throw new Error("Post must include text, image, or game content");
         }
         try {
             await addDoc(collection(db, "posts"), {
@@ -804,7 +819,11 @@ export const FeedService = {
                     display_name: State.profile?.display_name || State.profile?.username || State.currentUser.displayName || "Player",
                     avatar: State.profile?.avatar || ""
                 },
-                data: { text: safeText, imageUrl },
+                data: {
+                    text: safeText,
+                    imageUrl,
+                    game: (typeof payload === 'object' ? payload?.game : null)
+                },
                 timestamp: serverTimestamp(),
                 likes: 0,
                 comments: 0

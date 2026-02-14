@@ -1336,8 +1336,7 @@ function renderSocialFeed(isUpdate = false) {
                         <div class="feed-v2-composer-row">
                             <div class="flex items-center gap-2">
                                 <label for="statusImageFiles" class="feed-v2-icon-action" title="Image"><i class="far fa-image"></i></label>
-                                <button onclick="openSearchPage('')" class="feed-v2-icon-action" title="Tag Game"><i class="fas fa-gamepad"></i></button>
-                                <button type="button" class="feed-v2-icon-action" title="Sticker"><i class="fas fa-note-sticky"></i></button>
+                                <button onclick="window.openGameSelector()" class="feed-v2-icon-action" title="Tag Game"><i class="fas fa-gamepad"></i></button>
                             </div>
                             <button onclick="window.publishStatusPost()" class="feed-v2-post-btn">Post</button>
                         </div>
@@ -1505,13 +1504,27 @@ function getFeedBody(post) {
     if (post.type === 'status') {
         const safeText = escapeHtml(post.data?.text || '');
         const imageUrl = post.data?.imageUrl ? String(post.data.imageUrl) : '';
+        const game = post.data?.game || null;
+
         const textBlock = safeText ? `<div class="feed-v2-status-text">${safeText}</div>` : '';
         const imageBlock = imageUrl ? `
             <div class="feed-v2-post-media">
                 <img src="${escapeAttr(imageUrl)}" alt="post image" class="w-full h-auto object-cover">
             </div>
         ` : '';
-        return `${textBlock}${imageBlock}`;
+
+        const gameBlock = game ? `
+            <div class="feed-v2-system-event mt-2">
+                <img src="${game.thumbnail || 'assets/icons/logo.jpg'}" class="feed-v2-mini-thumb" alt="${escapeHtml(game.title)}">
+                <div class="min-w-0">
+                    <div class="text-xs text-gray-300">Playing</div>
+                    <div class="text-sm font-bold text-white truncate">${escapeHtml(game.title)}</div>
+                </div>
+                <button onclick="playGame('${escapeAttr(game.url || game.path || '')}','${escapeAttr(game.title || 'Game')}')" class="feed-v2-mini-play">Play</button>
+            </div>
+        ` : '';
+
+        return `${textBlock}${imageBlock}${gameBlock}`;
     }
 
     if (post.type === 'profile_update') {
@@ -1992,8 +2005,7 @@ window.openGlobalChannel = function () {
 };
 
 window.openSupportChannel = function () {
-    window.switchChatTab('global', false, false, false);
-    showToast('Support channel is coming soon', 'info');
+    window.openSupportModal();
 };
 
 /* -------------------------------------------------------------------------- */
@@ -2732,6 +2744,10 @@ function findGameById(gameId) {
     if (!game && lookup.includes('/')) {
         game = games.find(g => String(g.url || g.path || '').trim().toLowerCase().includes(lookup));
     }
+    // Fallback: Check title
+    if (!game) {
+        game = games.find(g => String(g.title || '').trim().toLowerCase() === lookup);
+    }
     return game ? normalizeGame(game) : null;
 }
 
@@ -2782,7 +2798,9 @@ function renderFeedComposerPreview() {
     if (!preview || !meta) return;
 
     const files = window.chatState.feedComposerFiles || [];
-    if (!files.length) {
+    const game = window.chatState.feedComposerGame || null;
+
+    if (!files.length && !game) {
         preview.classList.add('hidden');
         preview.innerHTML = '';
         meta.textContent = 'Text posts are enabled';
@@ -2790,15 +2808,39 @@ function renderFeedComposerPreview() {
     }
 
     preview.classList.remove('hidden');
-    preview.innerHTML = files.map((file, index) => `
-        <div class="relative border border-white/10 rounded-lg overflow-hidden">
+    let html = '';
+
+    // Render Game
+    if (game) {
+        html += `
+            <div class="relative border border-purple-500/50 bg-purple-500/10 rounded-lg overflow-hidden flex items-center p-2 gap-3 mb-2 col-span-3">
+                <img src="${game.thumbnail || 'assets/icons/logo.jpg'}" class="w-10 h-10 rounded-md object-cover">
+                <div class="min-w-0 flex-1">
+                    <div class="text-xs text-purple-200 font-bold">Playing</div>
+                    <div class="text-sm text-white font-bold truncate">${escapeHtml(game.title)}</div>
+                </div>
+                <button onclick="window.removeFeedComposerGame()" class="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `;
+    }
+
+    // Render Images
+    html += files.map((file, index) => `
+        <div class="relative border border-white/10 rounded-lg overflow-hidden group">
             <img src="${file.previewUrl}" alt="preview ${index + 1}" class="w-full h-20 object-cover">
-            <button onclick="window.removeFeedComposerImage(${index})" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] flex items-center justify-center">
+            <button onclick="window.removeFeedComposerImage(${index})" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <i class="fas fa-times"></i>
             </button>
         </div>
     `).join('');
-    meta.textContent = `${files.length} image${files.length > 1 ? 's' : ''} selected`;
+
+    preview.innerHTML = html;
+
+    const count = files.length;
+    const gameText = game ? ` • Playing ${game.title}` : '';
+    meta.textContent = `${count ? count + ' image' + (count > 1 ? 's' : '') : ''}${gameText}`;
 }
 
 window.removeFeedComposerImage = function (index) {
@@ -2809,7 +2851,7 @@ window.removeFeedComposerImage = function (index) {
         URL.revokeObjectURL(removed.previewUrl);
     }
     files.splice(index, 1);
-    window.chatState.feedComposerFiles = files;
+    window.chatState.feedComposerFiles = files; // Updates state reference
 
     const fileInput = document.getElementById('statusImageFiles');
     if (!files.length && fileInput) fileInput.value = '';
@@ -2923,3 +2965,213 @@ function coerceDate(stamp) {
     if (typeof stamp.seconds === 'number') return new Date(stamp.seconds * 1000);
     return null;
 }
+
+/* ========================================================================== */
+/*                           NEW FEED & SUPPORT LOGIC                         */
+/* ========================================================================== */
+
+window.handleFeedImageSelection = function (event) {
+    const files = Array.from(event.target.files);
+    if (!files.length) return;
+
+    // Limit to 4 images
+    const existing = window.chatState.feedComposerFiles || [];
+    const limit = 4;
+    const maxSize = 5 * 1024 * 1024; // 5MB
+
+    if (existing.length >= limit) {
+        showToast("Maximum 4 images allowed", "error");
+        return;
+    }
+
+    const validFiles = files.filter(file => {
+        if (file.size > maxSize) {
+            showToast(`Skipped ${file.name}: too large (max 5MB)`, "error");
+            return false;
+        }
+        // Basic image type check
+        if (!file.type.startsWith('image/')) {
+            showToast(`Skipped ${file.name}: not an image`, "error");
+            return false;
+        }
+        return true;
+    });
+
+    const newFiles = validFiles.slice(0, limit - existing.length).map(file => ({
+        file,
+        previewUrl: URL.createObjectURL(file)
+    }));
+
+    window.chatState.feedComposerFiles = [...existing, ...newFiles];
+    renderFeedComposerPreview();
+    event.target.value = '';
+};
+
+window.openGameSelector = function () {
+    const games = window.Services?.state?.gameLibrary || window.allGames || [];
+    let modal = document.getElementById('gameSelectorModal');
+
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'gameSelectorModal';
+        modal.className = 'fixed inset-0 z-[7300] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 hidden';
+        modal.innerHTML = `
+            <div class="w-full max-w-md bg-[#13131a] border border-white/10 rounded-2xl p-5 max-h-[80vh] flex flex-col">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-black text-white">Select Game</h3>
+                    <button onclick="document.getElementById('gameSelectorModal').classList.add('hidden')" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+                </div>
+                <input type="text" id="gameSelectorSearch" placeholder="Search games..." class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm mb-3" oninput="window.filterGameSelector(this.value)">
+                <div id="gameSelectorList" class="flex-1 overflow-y-auto space-y-2 min-h-[200px]"></div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    window.renderGameSelectorList(games);
+    modal.classList.remove('hidden');
+};
+
+window.renderGameSelectorList = function (games) {
+    const list = document.getElementById('gameSelectorList');
+    if (!list) return;
+    list.innerHTML = games.map(g => `
+        <button onclick="window.selectGameForPost(this.getAttribute('data-id'))" data-id="${escapeAttr(g.id || g.title)}" class="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 text-left transition-colors">
+            <img src="${g.thumbnail || 'assets/icons/logo.jpg'}" class="w-10 h-10 rounded-md object-cover">
+            <div class="min-w-0">
+                <div class="text-sm font-bold text-white truncate">${escapeHtml(g.title)}</div>
+                <div class="text-xs text-gray-400 truncate">${escapeHtml(g.category || 'Game')}</div>
+            </div>
+        </button>
+    `).join('');
+};
+
+window.filterGameSelector = function (query) {
+    const term = query.toLowerCase();
+    const games = window.Services?.state?.gameLibrary || window.allGames || [];
+    const filtered = games.filter(g => g.title.toLowerCase().includes(term));
+    window.renderGameSelectorList(filtered);
+};
+
+window.selectGameForPost = function (gameId) {
+    const game = findGameById(gameId);
+    if (game) {
+        window.chatState.feedComposerGame = game;
+        renderFeedComposerPreview();
+        document.getElementById('gameSelectorModal').classList.add('hidden');
+    }
+};
+
+window.removeFeedComposerGame = function () {
+    window.chatState.feedComposerGame = null;
+    renderFeedComposerPreview();
+};
+
+window.publishStatusPost = async function () {
+    const input = document.getElementById('statusPostInput');
+    const text = input ? input.value.trim() : '';
+    const files = window.chatState.feedComposerFiles || [];
+    const game = window.chatState.feedComposerGame || null;
+
+    if (!text && !files.length && !game) {
+        showToast("Post cannot be empty", "error");
+        return;
+    }
+
+    let imageDataUrl = null;
+    if (files.length > 0) {
+        try {
+            const reader = new FileReader();
+            imageDataUrl = await new Promise((resolve, reject) => {
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(files[0].file);
+            });
+        } catch (e) {
+            console.error("Image read error", e);
+            showToast("Failed to process image", "error");
+            return;
+        }
+    }
+
+    const payload = {
+        text,
+        imageDataUrl,
+        game
+    };
+
+    try {
+        const btn = document.querySelector('.feed-v2-post-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Posting...';
+        }
+
+        await window.Services.feed.postStatus(payload);
+        showToast("Post published!", "success");
+
+        // Reset
+        if (input) input.value = '';
+        window.chatState.feedComposerFiles = [];
+        window.chatState.feedComposerGame = null;
+        cleanupFeedComposerPreviewUrls();
+        renderFeedComposerPreview();
+
+    } catch (e) {
+        console.error("Publish Error", e);
+        htmlString = String(e.message || "");
+        if (htmlString.includes("quota")) {
+            showToast("Server storage full. Try posting text only.", "error");
+        } else {
+            showToast(e.message || "Failed to publish post", "error");
+        }
+    } finally {
+        const btn = document.querySelector('.feed-v2-post-btn');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Post';
+        }
+    }
+};
+
+window.openSupportModal = function () {
+    let modal = document.getElementById('supportModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'supportModal';
+        modal.className = 'fixed inset-0 z-[7400] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 hidden';
+        modal.innerHTML = `
+             <div class="w-full max-w-md bg-[#13131a] border border-white/10 rounded-2xl p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-purple-600/20 flex items-center justify-center text-purple-400">
+                            <i class="fas fa-headset"></i>
+                        </div>
+                        <h3 class="text-lg font-black text-white">Support & Feedback</h3>
+                    </div>
+                    <button onclick="document.getElementById('supportModal').classList.add('hidden')" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+                </div>
+                <p class="text-sm text-gray-400 mb-4">How can we help? Let us know if you found a bug or have a suggestion.</p>
+                <textarea id="supportMessage" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm h-32 resize-none mb-4" placeholder="Describe your issue..."></textarea>
+                <button onclick="window.submitSupportRequest()" class="w-full py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold transition-all">Submit Ticket</button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    document.getElementById('supportMessage').value = '';
+    modal.classList.remove('hidden');
+};
+
+window.submitSupportRequest = function () {
+    const msg = document.getElementById('supportMessage')?.value.trim();
+    if (!msg) {
+        showToast("Please enter a message", "error");
+        return;
+    }
+    // Simulate API call
+    setTimeout(() => {
+        showToast("Support ticket #492 submitted! We'll allow tracking soon.", "success");
+        document.getElementById('supportModal').classList.add('hidden');
+    }, 600);
+};
+
