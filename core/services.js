@@ -131,46 +131,37 @@ async function uploadImageDataUrl(dataUrl, folder) {
         throw new Error("Invalid image format.");
     }
 
-    // Convert Base64 to Blob
+    // ImgBB API Implementation
+    const apiKey = 'beb2b04b30d7efa311eaa67b40cf67cc';
+
     try {
-        const arr = safeData.split(',');
-        const mime = arr[0].match(/:(.*?);/)[1];
-        const bstr = atob(arr[1]);
-        let n = bstr.length;
-        const u8arr = new Uint8Array(n);
-        while (n--) {
-            u8arr[n] = bstr.charCodeAt(n);
+        console.log("[Upload] Starting upload to ImgBB...");
+
+        // Remove header to get pure base64 for ImgBB
+        const base64Image = safeData.replace(/^data:image\/\w+;base64,/, "");
+
+        const formData = new FormData();
+        formData.append("image", base64Image);
+
+        // Upload to ImgBB
+        const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            console.log("[Upload] Success:", data.data.url);
+            return data.data.url;
+        } else {
+            console.error("[Upload] ImgBB Error:", data);
+            throw new Error(data.error?.message || "Image upload failed via ImgBB.");
         }
-        const blob = new Blob([u8arr], { type: mime });
-
-        const ext = mime.split('/')[1] || 'jpg';
-        const uploadPath = buildStoragePath(folder, ext);
-
-        console.log(`[Upload] Starting upload to: ${uploadPath} (${blob.size} bytes)`);
-
-        // Explicitly use the bucket URL to avoid default bucket config issues
-        const storage = getStorage(app, "gs://satex-games.appspot.com");
-        const fileRef = storageRef(storage, uploadPath);
-
-        // Metadata
-        const metadata = {
-            contentType: mime,
-        };
-
-        // Upload Blob
-        const uploadTask = uploadBytes(fileRef, blob, metadata);
-
-        // 60s Timeout for slow connections
-        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out. Check your connection.')), 60000));
-
-        await Promise.race([uploadTask, timeout]);
-        const url = await getDownloadURL(fileRef);
-        console.log("[Upload] Success:", url);
-        return url;
 
     } catch (error) {
         console.error("[Upload] Error:", error);
-        throw new Error(mapFirebaseError(error, "Image upload failed. Please try again."));
+        throw new Error("Image upload failed. Please try again.");
     }
 }
 
@@ -912,6 +903,14 @@ export const FeedService = {
                 emitServiceError('feed', error);
             }
         );
+    },
+
+    deletePost: async (postId) => {
+        if (!State.currentUser) throw new Error("Login required");
+        // Verify ownership is handled via security rules, but UI should also check.
+        // We delete the doc. Subcollections (likes/comments) might need manual deletion or cloud function trigger,
+        // but for now we delete the main post.
+        await deleteDoc(doc(db, "posts", postId));
     },
 
     stopFeed: () => {

@@ -1,29 +1,65 @@
-# Fixing Image Uploads (CORS) - The Easiest Way
+# Fixing Image Uploads (Two Options)
 
-Since you don't have the Google Cloud tools installed locally (and installing them is a large download), the easiest way to fix the image upload issue is to use the **Google Cloud Shell** in your browser. It comes pre-installed with everything we need.
+It seems you are having trouble with the Google Cloud configuration. Here are two ways to solve the image upload issue.
 
-## Steps
+---
 
-1.  **Open Google Cloud Console**:
-    Go to [https://console.cloud.google.com/](https://console.cloud.google.com/) and make sure you are logged in with the same Google account you use for Firebase.
+## Option 1: The "Correct" Way (Install Free Tool)
+**Clarification:** You do **NOT** need to pay money or enter a credit card to use the command-line tool. It is free software. The "Paid" message you saw was likely on the Google Cloud website, which you don't need to use for this.
 
-2.  **Select Your Project**:
-    Click the project dropdown at the top and select **`satex-games`**.
+1.  **Download the Google Cloud SDK Installer (Free):**
+    *   [Windows 64-bit Installer (Direct Link)](https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe)
+2.  **Run the Installer**:
+    *   Accept defaults.
+    *   When it finishes, it will open a terminal window.
+    *   Run `gcloud init` and log in with your Google account.
+3.  **Run the CORS Command**:
+    *   Open your project folder (`D:\Archad`) in that terminal.
+    *   Run: `gsutil cors set cors.json gs://satex-games.appspot.com`
 
-3.  **Open Cloud Shell**:
-    Click the **Activate Cloud Shell** icon in the top-right toolbar (it looks like a terminal prompt `>_`). A terminal window will open at the bottom of the page.
+---
 
-4.  **Create the CORS config**:
-    In the Cloud Shell terminal, type this command to create the file:
-    ```bash
-    echo '[{"origin": ["*"],"method": ["GET", "PUT", "POST", "DELETE", "HEAD"],"responseHeader": ["Content-Type", "x-goog-resumable"],"maxAgeSeconds": 3600}]' > cors.json
-    ```
+## Option 2: The "Easiest" Way (Switch to ImgBB)
+If you don't want to install anything, we can switch your project to use **ImgBB** (a free image hosting service) instead of Firebase Storage. This completely avoids the Google/CORS issue.
 
-5.  **Apply the Configuration**:
-    Run this command in the Cloud Shell:
-    ```bash
-    gsutil cors set cors.json gs://satex-games.appspot.com
-    ```
+1.  **Get a Free API Key:**
+    *   Go to [https://api.imgbb.com/](https://api.imgbb.com/)
+    *   Click "Get API Key" (Login/Signup is free).
+    *   Copy your connection key.
 
-6.  **Done!**
-    You can now close the Cloud Shell. Go back to your local website (`localhost`), refresh the page, and try uploading an image again. It should now work instantly!
+2.  **Update Your Code (`core/services.js`):**
+    *   Locate the `uploadImageDataUrl` function.
+    *   Replace it with the code below (add your API key):
+
+```javascript
+async function uploadImageDataUrl(dataUrl, folder) {
+    const apiKey = 'YOUR_IMGBB_API_KEY_HERE'; // PASTE KEY HERE
+    
+    // Remove header to get pure base64
+    const base64Image = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+    
+    const formData = new FormData();
+    formData.append("image", base64Image);
+    
+    try {
+        console.log("[Upload] Uploading to ImgBB...");
+        const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
+            method: "POST",
+            body: formData
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            console.log("[Upload] Success:", data.data.url);
+            return data.data.url;
+        } else {
+            throw new Error(data.error.message || "Upload failed");
+        }
+    } catch (error) {
+        console.error("[Upload] Error:", error);
+        throw new Error("Image upload failed. Please try again.");
+    }
+}
+```
+
+This method is simpler and requires no software installation or configuration.

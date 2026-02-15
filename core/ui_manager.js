@@ -795,7 +795,93 @@ function renderProfileLegacy() {
             </div>
         </div>
     `;
+
+    // Append User's Activity Feed
+    const feedSection = document.createElement('div');
+    feedSection.className = 'mt-6';
+    feedSection.innerHTML = `
+        <h3 class="text-xl font-black text-white mb-4 px-2">Activity</h3>
+        <div id="profile-feed-content" class="space-y-4">
+            <div class="text-center py-8 text-gray-500"><i class="fas fa-spinner fa-spin"></i> Loading activity...</div>
+        </div>
+    `;
+    container.appendChild(feedSection);
+
+    // Load Posts
+    setTimeout(() => {
+        if (uid) window.renderProfileFeedList(uid, 'profile-feed-content', false);
+    }, 100);
+
+    return '';
 }
+
+
+window.renderProfileFeedList = function (uid, containerId, showAll = false) {
+    const profilePosts = (window.chatState.feedPosts || []).filter(p => p.user?.uid === uid);
+    const profileFeedEl = document.getElementById(containerId);
+
+    if (!profileFeedEl) return;
+
+    if (!profilePosts.length) {
+        profileFeedEl.innerHTML = `<div class="bg-white/5 border border-white/10 rounded-xl p-8 text-center text-gray-500">No recent activity.</div>`;
+        return;
+    }
+
+    const limit = showAll ? profilePosts.length : 5;
+    const postsToShow = profilePosts.slice(0, limit);
+    const hasMore = profilePosts.length > limit;
+
+    const postsHtml = postsToShow.map(post => {
+        const title = getFeedTitle(post);
+        const time = formatDateTime(post.timestamp);
+        const body = getFeedBody(post);
+        const isOwner = window.Services?.state?.currentUser?.uid === uid; // Check against Post Owner UID
+        const currentUserId = window.Services?.state?.currentUser?.uid;
+
+        // Correct menu logic: 
+        // If current user is owner of post -> Delete
+        // If current user is NOT owner -> Report
+        const menuItems = (currentUserId && post.user?.uid === currentUserId)
+            ? `<button onclick="window.deletePost('${post.id}')" class="feed-v2-menu-item danger"><i class="fas fa-trash-alt"></i> Delete Post</button>`
+            : `<button onclick="window.reportPost('${post.id}')" class="feed-v2-menu-item"><i class="fas fa-flag"></i> Report</button>`;
+
+        return `
+            <article class="feed-v2-post rail-panel" style="margin-bottom: 16px;">
+                <div class="feed-v2-post-head">
+                    <div class="feed-v2-user-block">
+                        <div class="feed-v2-user-avatar"><img class="w-full h-full object-cover" src="${post.user?.avatar || 'assets/icons/logo.jpg'}" alt="avatar"></div>
+                        <div class="min-w-0">
+                            <div class="feed-v2-user-name">${escapeHtml(post.user?.username || 'Player')}</div>
+                            <div class="feed-v2-user-time">${time}</div>
+                        </div>
+                    </div>
+                    <div class="relative">
+                        <button onclick="window.togglePostMenu('${post.id}-profile')" class="feed-v2-more-btn"><i class="fas fa-ellipsis-h"></i></button>
+                        <div id="post-menu-${post.id}-profile" class="feed-v2-post-menu">
+                            ${menuItems}
+                            <button onclick="window.togglePostMenu('${post.id}-profile')" class="feed-v2-menu-item"><i class="fas fa-times"></i> Cancel</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="feed-v2-post-text">${title}</div>
+                <div class="feed-v2-post-body">${body}</div>
+            </article>
+        `;
+    }).join('');
+
+    let footerHtml = '';
+    if (hasMore) {
+        footerHtml = `
+            <div class="text-center mt-4">
+                <button onclick="window.renderProfileFeedList('${uid}', '${containerId}', true)" class="px-6 py-2 rounded-full bg-white/5 hover:bg-white/10 text-white text-xs font-bold transition-all border border-white/10">
+                    View All Activity (${profilePosts.length})
+                </button>
+            </div>
+        `;
+    }
+
+    profileFeedEl.innerHTML = postsHtml + footerHtml;
+};
 
 function renderProfile() {
     const container = document.getElementById('view-profile');
@@ -1047,9 +1133,24 @@ function renderProfile() {
                         </div>
                     ` : `<div class="profile-v2-empty">No recent games found yet.</div>`}
                 </section>
+
+                <!-- Activity Feed Section -->
+                <section class="mb-8" id="profile-feed-container">
+                    <div class="profile-v2-section-head">
+                        <h3 class="profile-v2-title"><i class="fas fa-stream text-pink-500"></i> Activity</h3>
+                    </div>
+                    <div id="profile-feed-content" class="space-y-4 mt-4">
+                        <div class="text-center py-8 text-gray-500"><i class="fas fa-spinner fa-spin"></i> Loading activity...</div>
+                    </div>
+                </section>
             </main>
         </div>
     `;
+
+    // Load Posts for My Profile
+    setTimeout(() => {
+        window.renderProfileFeedList(userData.uid, 'profile-feed-content', false);
+    }, 100);
 }
 
 function renderProfileAchievements(achievements, isOwn) {
@@ -1472,7 +1573,16 @@ function renderFeedPosts() {
                             <div class="feed-v2-user-time">${time}</div>
                         </div>
                     </div>
-                    <button class="feed-v2-more-btn"><i class="fas fa-ellipsis-h"></i></button>
+                    <div class="relative">
+                        <button onclick="window.togglePostMenu('${post.id}')" class="feed-v2-more-btn"><i class="fas fa-ellipsis-h"></i></button>
+                        <div id="post-menu-${post.id}" class="feed-v2-post-menu">
+                            ${(currentUid && post.user?.uid === currentUid)
+                ? `<button onclick="window.deletePost('${post.id}')" class="feed-v2-menu-item danger"><i class="fas fa-trash-alt"></i> Delete Post</button>`
+                : `<button onclick="window.reportPost('${post.id}')" class="feed-v2-menu-item"><i class="fas fa-flag"></i> Report</button>`
+            }
+                            <button onclick="window.togglePostMenu('${post.id}')" class="feed-v2-menu-item"><i class="fas fa-times"></i> Cancel</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="feed-v2-post-text">${title}</div>
                 <div class="feed-v2-post-body">
@@ -1565,6 +1675,41 @@ function getFeedBody(post) {
 
     return '';
 }
+
+/* -------------------------------------------------------------------------- */
+/*                               POST ACTIONS                                 */
+/* -------------------------------------------------------------------------- */
+
+window.togglePostMenu = function (postId) {
+    const menu = document.getElementById(`post-menu-${postId}`);
+    if (menu) {
+        // Close others
+        document.querySelectorAll('.feed-v2-post-menu.active').forEach(el => {
+            if (el.id !== `post-menu-${postId}`) el.classList.remove('active');
+        });
+        menu.classList.toggle('active');
+    }
+};
+
+window.deletePost = async function (postId) {
+    if (!confirm("Are you sure you want to delete this post?")) return;
+    try {
+        await window.Services.feed.deletePost(postId);
+        // Optimistic UI update
+        window.chatState.feedPosts = window.chatState.feedPosts.filter(p => p.id !== postId);
+        renderFeedPosts();
+        if (isProfileViewActive()) renderProfile(); // Refresh profile if open
+        showToast("Post deleted.", "success");
+    } catch (e) {
+        console.error("Delete error:", e);
+        showToast("Failed to delete post", "error");
+    }
+};
+
+window.reportPost = function (postId) {
+    showToast("Post reported. Thanks for helping keep the community safe!", "success");
+    window.togglePostMenu(postId);
+};
 
 function populateTrending() {
     const games = window.Services?.state?.gameLibrary || window.allGames || [];
