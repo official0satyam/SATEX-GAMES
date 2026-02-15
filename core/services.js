@@ -182,6 +182,15 @@ export const AuthService = {
 
                 // Presence
                 await UserService.updateStatus('online');
+
+                // Heartbeat to keep status fresh (every 4 mins)
+                if (State.heartbeatInterval) clearInterval(State.heartbeatInterval);
+                State.heartbeatInterval = setInterval(() => {
+                    if (State.currentUser && !document.hidden) {
+                        UserService.updateStatus('online');
+                    }
+                }, 4 * 60 * 1000);
+
                 if (!State.presenceBound) {
                     State.presenceBound = true;
                     window.addEventListener('beforeunload', () => UserService.updateStatus('offline'));
@@ -190,6 +199,8 @@ export const AuthService = {
                         if (document.hidden) {
                             UserService.updateStatus('away');
                         } else {
+                            UserService.updateStatus('online');
+                            // Immediate update on return
                             UserService.updateStatus('online');
                         }
                     });
@@ -239,6 +250,7 @@ export const AuthService = {
         if (State.directChatUnsub) { State.directChatUnsub(); State.directChatUnsub = null; }
         if (State.onlineUsersUnsub) { State.onlineUsersUnsub(); State.onlineUsersUnsub = null; }
         if (State.dmThreadsUnsub) { State.dmThreadsUnsub(); State.dmThreadsUnsub = null; }
+        if (State.heartbeatInterval) { clearInterval(State.heartbeatInterval); State.heartbeatInterval = null; }
 
         State.listeners.forEach(unsub => unsub());
         State.listeners = [];
@@ -702,9 +714,24 @@ export const FriendService = {
             limit(30)
         );
         State.onlineUsersUnsub = onSnapshot(q, (snapshot) => {
+            const now = Date.now();
+            const cutoff = now - (10 * 60 * 1000); // 10 minutes timeout
+
             const users = snapshot.docs
                 .map(d => d.data())
-                .filter(u => u.uid !== State.currentUser.uid);
+                .filter(u => {
+                    if (u.uid === State.currentUser.uid) return false;
+
+                    // Check if last_active is recent
+                    let lastActiveTime = 0;
+                    if (u.last_active && typeof u.last_active.toMillis === 'function') {
+                        lastActiveTime = u.last_active.toMillis();
+                    } else if (u.last_active) {
+                        lastActiveTime = new Date(u.last_active).getTime();
+                    }
+
+                    return lastActiveTime > cutoff;
+                });
             window.dispatchEvent(new CustomEvent('onlineUsersUpdated', { detail: users }));
         });
     },

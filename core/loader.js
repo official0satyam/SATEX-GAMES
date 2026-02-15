@@ -402,10 +402,20 @@ function saveToRecent(gameUrl, title) {
 }
 
 function renderRecentGames() {
-    const recent = JSON.parse(localStorage.getItem('satex_recent') || '[]');
-    if (recent.length === 0) {
+    let recent = [];
+    if (window.Services && window.Services.state && window.Services.state.currentUser) {
+        // Use Firestore Profile
+        recent = window.Services.state.profile?.recent_games || [];
+    } else {
+        // Fallback to Local Storage for Guests
+        try {
+            recent = JSON.parse(localStorage.getItem('satex_recent') || '[]');
+        } catch (e) { recent = []; }
+    }
+
+    if (!recent || recent.length === 0) {
         const grid = document.getElementById('gamesGrid');
-        grid.innerHTML = '<div class="col-span-full text-center py-20 text-gray-500">You haven\'t played any games yet.</div>';
+        if (grid) grid.innerHTML = '<div class="col-span-full text-center py-20 text-gray-500">No recent games found. Play some games to see them here!</div>';
         return;
     }
     renderGames(recent);
@@ -660,6 +670,11 @@ function renderFullSearchResults(games) {
         `;
         grid.appendChild(card);
     });
+}
+function playGame(url, title) {
+    if (!title) return;
+    // Use title to find game in game.html, robust enough for this use case
+    window.location.href = `game.html?title=${encodeURIComponent(title)}`;
 }
 
 // Global exposure

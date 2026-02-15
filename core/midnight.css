@@ -89,6 +89,7 @@ body {
         height: calc(100dvh - (60px + env(safe-area-inset-top)));
         z-index: 1900;
         transform: translateX(-100%);
+        padding-bottom: calc(80px + env(safe-area-inset-bottom));
     }
 
     .main-container {

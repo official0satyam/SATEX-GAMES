@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4409930295863668"
+        crossorigin="anonymous"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Playing Game | SATEX Games</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bar-height: 60px;
+            --bg-dark: #111111;
+            --bg-purple: #6b21a8;
+            --text-light: #e5e5e5;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: black;
+            color: white;
+            font-family: 'Outfit', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .main-layout {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            width: 100%;
+        }
+
+        .game-wrapper {
+            flex: 1;
+            position: relative;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+
+        /* Bottom Control Bar */
+        .control-bar {
+            height: var(--bar-height);
+            background: #1c1c24;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 50;
+        }
+
+        .bar-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .game-icon-small {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+
+        .bar-title {
+            font-weight: 800;
+            font-size: 1.1rem;
+            color: white;
+            white-space: nowrap;
+        }
+
+        .bar-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tool-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: none;
+            color: #b0b0b0;
+            height: 36px;
+            min-width: 36px;
+            padding: 0 10px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .tool-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            transform: translateY(-1px);
+        }
+
+        .tool-btn.primary {
+            background: #6b21a8;
+            color: white;
+        }
+
+        .tool-btn.primary:hover {
+            background: #7e22ce;
+        }
+
+        .divider {
+            width: 1px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 0 4px;
+        }
+
+        /* Mobile specific adjustments */
+        @media (max-width: 768px) {
+            .control-bar {
+                padding: 0 12px;
+            }
+
+            .bar-left {
+                gap: 8px;
+            }
+
+            .bar-title {
+                font-size: 0.9rem;
+                max-width: 120px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .game-icon-small {
+                width: 32px;
+                height: 32px;
+            }
+
+            .bar-right {
+                gap: 12px;
+                /* Giving more space between touch targets */
+            }
+
+            /* Making buttons larger for touch input */
+            .tool-btn {
+                height: 44px;
+                min-width: 44px;
+            }
+
+            .tool-btn span {
+                display: none;
+                /* Hide Like count text on mobile to save space */
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="main-layout" id="mainLayout">
+        <!-- Game Area -->
+        <div class="game-wrapper" id="gameWrapper">
+            <iframe id="gameFrame" allow="fullscreen; autoplay; gamepad; clipboard-write"
+                sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms"></iframe>
+        </div>
+
+        <!-- Bottom Control Bar -->
+        <div class="control-bar">
+            <!-- Left: Branding/Nav -->
+            <div class="bar-left">
+                <a href="index.html" class="tool-btn" title="Back to Home">
+                    <i class="fas fa-arrow-left"></i>
+                </a>
+                <img id="gameIcon" src="assets/icons/logo.jpg" class="game-icon-small" alt="icon">
+                <div id="gameTitle" class="bar-title">Loading...</div>
+            </div>
+
+            <!-- Right: Actions -->
+            <div class="bar-right">
+                <!-- Votes -->
+                <button class="tool-btn" onclick="window.toggleVote(this)">
+                    <i class="fas fa-thumbs-up"></i>
+                    <span id="likeCount">94%</span>
+                </button>
+                <button class="tool-btn hidden md:flex" onclick="window.toggleVote(this)">
+                    <i class="fas fa-thumbs-down"></i>
+                </button>
+
+                <!-- Social/Tools (Desktop only mostly) -->
+                <button class="tool-btn hidden md:flex" onclick="window.toggleFavorite()" title="Add to Favorites">
+                    <i class="far fa-heart fav-icon"></i>
+                </button>
+                <button class="tool-btn hidden md:flex" onclick="window.shareGame()" title="Share">
+                    <i class="fas fa-share-alt"></i>
+                </button>
+
+                <div class="divider hidden md:block"></div>
+
+                <!-- Screen Controls -->
+                <button class="tool-btn primary" onclick="window.toggleFullscreen()" title="Fullscreen (Instant Zoom)">
+                    <i class="fas fa-expand"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Module for Logic & Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBQySK9KiYjLqH_blaw8JCogk4TvAz5jH0",
+            authDomain: "satex-games.firebaseapp.com",
+            projectId: "satex-games",
+            storageBucket: "satex-games.appspot.com",
+            messagingSenderId: "1021871212512",
+            appId: "1:1021871212512:web:ea54d97198a06b81550d85",
+            measurementId: "G-968393H9W2"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let currentUser = null;
+        let xpInterval = null;
+        let activeGameData = null;
+
+        // --- Auth Listener ---
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                console.log("Player logged in:", user.uid);
+                startXPTracking();
+                if (activeGameData) addGameToRecent(user.uid, activeGameData);
+            } else {
+                console.log("Guest player");
+                if (xpInterval) clearInterval(xpInterval);
+            }
+        });
+
+        // --- Game Initialization ---
+        async function initGame() {
+            const params = new URLSearchParams(window.location.search);
+            const titleParam = params.get('title');
+
+            if (!titleParam) {
+                window.location.href = 'index.html';
+                return;
+            }
+
+            try {
+                const response = await fetch('games.json');
+                const games = await response.json();
+                const game = games.find(g => g.title.toLowerCase() === titleParam.toLowerCase());
+
+                if (game) {
+                    activeGameData = game;
+
+                    // UI Updates
+                    document.title = `${game.title} - Play on SATEX`;
+                    document.getElementById('gameTitle').textContent = game.title;
+                    const iframe = document.getElementById('gameFrame');
+                    iframe.src = game.url;
+
+                    iframe.onload = function () {
+                        iframe.contentWindow.focus();
+                    };
+
+                    if (game.thumbnail) document.getElementById('gameIcon').src = game.thumbnail;
+
+                    // Restore Local Interactions
+                    const storedLikes = localStorage.getItem(`likes-${game.title}`);
+                    document.getElementById('likeCount').textContent = storedLikes || (Math.floor(Math.random() * (99 - 85) + 85) + '%');
+
+                    updateFavoriteIcon();
+
+                    // Trigger Recent Game Save if User Loaded
+                    if (currentUser) {
+                        addGameToRecent(currentUser.uid, game);
+                    }
+
+                } else {
+                    alert('Game not found!');
+                    window.location.href = 'index.html';
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Failed to load game data.');
+                window.location.href = 'index.html';
+            }
+        }
+
+        // --- Recent Games Logic ---
+        async function addGameToRecent(uid, game) {
+            try {
+                const gameEntry = {
+                    title: game.title,
+                    thumbnail: game.thumbnail,
+                    url: game.url,
+                    category: game.category || 'Arcade',
+                    playedAt: Date.now()
+                };
+
+                const userRef = doc(db, "users", uid);
+                const snap = await getDoc(userRef);
+
+                if (snap.exists()) {
+                    let recent = snap.data().recent_games || [];
+                    // Remove duplicate if exists (to bump to top)
+                    recent = recent.filter(g => g.title !== game.title);
+                    // Add to front
+                    recent.unshift(gameEntry);
+                    // Limit to 10
+                    if (recent.length > 10) recent.pop();
+
+                    await updateDoc(userRef, { recent_games: recent });
+                    console.log("Recent Games updated");
+                }
+            } catch (e) {
+                console.error("Error adding recent game:", e);
+            }
+        }
+
+        // --- XP System ---
+        function startXPTracking() {
+            if (xpInterval) clearInterval(xpInterval);
+
+            // Runs every 60s
+            xpInterval = setInterval(async () => {
+                if (!currentUser || document.hidden) return;
+
+                const userRef = doc(db, "users", currentUser.uid);
+                try {
+                    // 1. Add XP
+                    await updateDoc(userRef, {
+                        xp: increment(10),
+                        games_played_time: increment(1) // In minutes (optional)
+                    });
+
+                    // 2. Check Level Up
+                    // We fetch to see current XP. 
+                    const snap = await getDoc(userRef);
+                    if (snap.exists()) {
+                        const data = snap.data();
+                        const currentXP = data.xp || 0;
+                        const currentLevel = data.level || 1;
+
+                        // Example Formula: Level = 1 + floor(XP / 1000)
+                        const newLevel = 1 + Math.floor(currentXP / 1000);
+
+                        if (newLevel > currentLevel) {
+                            await updateDoc(userRef, { level: newLevel });
+                            showToast(`Level Up! You are now Level ${newLevel}!`);
+                        }
+                    }
+                } catch (e) {
+                    console.error("XP Update Failed:", e);
+                }
+            }, 60000); // 1 minute interval
+        }
+
+        // --- UI Interactions (Global attachment) ---
+        window.toggleFullscreen = function () {
+            const elem = document.getElementById('gameWrapper');
+            if (!document.fullscreenElement) {
+                elem.requestFullscreen().catch(err => console.error(err));
+            } else {
+                document.exitFullscreen();
+            }
+        };
+
+        window.toggleVote = function (btn) {
+            btn.style.color = btn.style.color === 'rgb(168, 85, 247)' ? '#b0b0b0' : '#a855f7';
+        }
+
+        window.toggleFavorite = function () {
+            if (!activeGameData) return;
+            const title = activeGameData.title;
+            let favs = JSON.parse(localStorage.getItem('satex_favorites') || '[]');
+
+            if (favs.includes(title)) {
+                favs = favs.filter(t => t !== title);
+            } else {
+                favs.push(title);
+            }
+            localStorage.setItem('satex_favorites', JSON.stringify(favs));
+            updateFavoriteIcon();
+        }
+
+        function updateFavoriteIcon() {
+            if (!activeGameData) return;
+            const favs = JSON.parse(localStorage.getItem('satex_favorites') || '[]');
+            const icon = document.querySelector('.fav-icon');
+            if (icon && favs.includes(activeGameData.title)) {
+                icon.classList.replace('far', 'fas');
+                icon.classList.add('text-red-500');
+            } else if (icon) {
+                icon.classList.replace('fas', 'far');
+                icon.classList.remove('text-red-500');
+            }
+        }
+
+        window.shareGame = function () {
+            const shareData = {
+                title: document.title,
+                text: `Play ${document.getElementById('gameTitle').textContent} on SATEX Games!`,
+                url: window.location.href
+            };
+            if (navigator.share) {
+                navigator.share(shareData).catch(console.error);
+            } else {
+                navigator.clipboard.writeText(window.location.href);
+                showToast("Link copied!");
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.createElement('div');
+            toast.className = 'fixed top-5 left-1/2 transform -translate-x-1/2 bg-purple-600 text-white px-6 py-3 rounded-full shadow-2xl z-[100] font-bold animate-pulse';
+            toast.innerText = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // --- Start ---
+        initGame();
+
+    </script>
+</body>
+
+</html>
