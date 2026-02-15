@@ -198,6 +198,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 window.addEventListener('popstate', (e) => {
     const view = e.state ? e.state.view : 'home';
+    if (view === 'profile' && e.state?.uid) {
+        window.chatState.viewedProfileUid = e.state.uid;
+    } else if (view === 'profile' && !e.state?.uid) {
+        window.chatState.viewedProfileUid = null;
+    }
     _renderView(view, false);
 });
 
@@ -274,18 +279,30 @@ function _renderView(viewName, isPush) {
     // Reset Home View State if switching to Home
     if (viewName === 'home' && window.renderFullHome && window.allGames) {
         const homeFeatured = document.getElementById('homeFeatured');
-        if (homeFeatured) homeFeatured.style.display = 'block'; // FORCE VISIBLE
-        window.renderFullHome(window.allGames);
 
-        // Reset category pills
-        document.querySelectorAll('.cat-tag').forEach(tag => tag.classList.remove('active'));
-        const allTag = Array.from(document.querySelectorAll('.cat-tag')).find(t => t.innerText.trim().includes('All'));
-        if (allTag) allTag.classList.add('active');
-        // Reset sidebar active state
-        document.querySelectorAll('.sidebar-item').forEach(b => b.classList.remove('active'));
-        try {
-            document.querySelector('.sidebar-item[onclick*="home"]').classList.add('active');
-        } catch (e) { }
+        // CHECK IF WE HAVE A PENDING FILTER (from Sidebar)
+        if (window.pendingHomeFilter) {
+            if (homeFeatured) homeFeatured.style.display = 'none'; // Hide hero for filters
+            if (window.filterGames) {
+                window.filterGames(window.pendingHomeFilter);
+            }
+            window.pendingHomeFilter = null; // Consume
+        } else {
+            // STANDARD HOME RESET
+            if (homeFeatured) homeFeatured.style.display = 'block';
+            window.renderFullHome(window.allGames);
+
+            // Reset category pills
+            document.querySelectorAll('.cat-tag').forEach(tag => tag.classList.remove('active'));
+            const allTag = Array.from(document.querySelectorAll('.cat-tag')).find(t => t.innerText.trim().includes('All'));
+            if (allTag) allTag.classList.add('active');
+
+            // Reset sidebar active state
+            document.querySelectorAll('.sidebar-item').forEach(b => b.classList.remove('active'));
+            try {
+                document.querySelector('.sidebar-item[onclick*="home"]').classList.add('active');
+            } catch (e) { }
+        }
     }
 
     let target = document.getElementById(`view-${viewName}`);
@@ -441,20 +458,26 @@ async function loadViewedProfile(uid) {
 window.openUserProfile = async function (uid) {
     if (!uid) return;
     const currentUid = window.Services?.state?.currentUser?.uid || null;
+
     if (currentUid && uid === currentUid) {
-        window.chatState.viewedProfileUid = null;
-        window.chatState.viewedProfileData = null;
-        window.chatState.viewedProfileRelation = null;
-        if (isProfileViewActive()) renderProfile();
-        else window.switchView('profile');
+        window.openMyProfile();
         return;
     }
 
     window.chatState.viewedProfileUid = uid;
     window.chatState.viewedProfileData = null;
     window.chatState.viewedProfileRelation = null;
-    if (isProfileViewActive()) renderProfile();
-    else window.switchView('profile');
+
+    // Push State for Navigation
+    const url = `?view=profile&uid=${uid}`;
+    history.pushState({ view: 'profile', uid: uid }, '', url);
+
+    if (isProfileViewActive()) {
+        renderProfile();
+    } else {
+        _renderView('profile', true); // Bypass switchView check
+    }
+
     await loadViewedProfile(uid);
 };
 
@@ -462,8 +485,16 @@ window.openMyProfile = function () {
     window.chatState.viewedProfileUid = null;
     window.chatState.viewedProfileData = null;
     window.chatState.viewedProfileRelation = null;
-    if (isProfileViewActive()) renderProfile();
-    else window.switchView('profile');
+
+    // Push State for Navigation
+    const url = `?view=profile`;
+    history.pushState({ view: 'profile', uid: null }, '', url);
+
+    if (isProfileViewActive()) {
+        renderProfile();
+    } else {
+        _renderView('profile', true);
+    }
 };
 
 window.sendFriendRequestFromViewedProfile = async function () {

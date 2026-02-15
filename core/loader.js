@@ -286,13 +286,15 @@ function setupEventListeners() {
         btn.addEventListener('click', () => {
             clearSidebarActive();
             btn.classList.add('active');
-
             const category = btn.dataset.category;
-            if (category === 'All') {
-                renderGames(allGames);
+
+            // Set pending filter and switch view
+            window.pendingHomeFilter = category;
+            if (window.switchView) {
+                window.switchView('home');
             } else {
-                const filtered = allGames.filter((game) => game.category === category);
-                renderGames(filtered);
+                // Fallback if UI manager not ready
+                renderGames(category === 'All' ? allGames : allGames.filter(g => g.category === category));
             }
         });
     });
@@ -303,7 +305,24 @@ function setupEventListeners() {
         btnRecent.addEventListener('click', () => {
             clearSidebarActive();
             btnRecent.classList.add('active');
-            renderRecentGames();
+
+            // Custom function for Recent is slightly different as it pulls from LocalStorage
+            // We can use a special "filter" string or handle it:
+            // Let's manually trigger it after switch
+            if (window.switchView) {
+                window.switchView('home');
+                // Delay slightly to ensure render happened
+                setTimeout(() => {
+                    renderRecentGames();
+                    // Update UI manually for the title since filteredGames doesn't handle 'Recent'
+                    const title = document.querySelector('.section-title');
+                    if (title) title.innerHTML = '<i class="fas fa-history text-green-500"></i> Recently Played';
+                    const hero = document.getElementById('homeFeatured');
+                    if (hero) hero.style.display = 'none';
+                }, 50);
+            } else {
+                renderRecentGames();
+            }
         });
     }
 
@@ -312,9 +331,21 @@ function setupEventListeners() {
         btnNew.addEventListener('click', () => {
             clearSidebarActive();
             btnNew.classList.add('active');
-            // Mock "New" logic: take last 10 games
-            const newGames = [...allGames].reverse().slice(0, 15);
-            renderGames(newGames);
+
+            window.pendingHomeFilter = 'New'; // We need to handle 'New' in filterGames or here
+
+            // Since filterGames might not handle "New", let's do similar custom logic:
+            if (window.switchView) {
+                window.switchView('home');
+                setTimeout(() => {
+                    const newGames = [...allGames].reverse().slice(0, 15);
+                    renderGames(newGames);
+                    const title = document.querySelector('.section-title');
+                    if (title) title.innerHTML = '<i class="fas fa-star text-yellow-500"></i> New Games';
+                    const hero = document.getElementById('homeFeatured');
+                    if (hero) hero.style.display = 'none';
+                }, 50);
+            }
         });
     }
 
@@ -323,9 +354,18 @@ function setupEventListeners() {
         btnPopular.addEventListener('click', () => {
             clearSidebarActive();
             btnPopular.classList.add('active');
-            // Mock "Popular" logic: sort deterministically based on title length (random-ish but stable)
-            const popularGames = [...allGames].sort((a, b) => a.title.length - b.title.length);
-            renderGames(popularGames);
+
+            if (window.switchView) {
+                window.switchView('home');
+                setTimeout(() => {
+                    const popularGames = [...allGames].sort((a, b) => a.title.length - b.title.length);
+                    renderGames(popularGames);
+                    const title = document.querySelector('.section-title');
+                    if (title) title.innerHTML = '<i class="fas fa-fire text-orange-500"></i> Popular';
+                    const hero = document.getElementById('homeFeatured');
+                    if (hero) hero.style.display = 'none';
+                }, 50);
+            }
         });
     }
 }
